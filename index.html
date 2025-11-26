@@ -707,9 +707,6 @@
     zoomOutBtn.addEventListener('click', () => setZoom(zoom / 1.1));
     resetViewBtn.addEventListener('click', resetView);
 
-    applyViewVisibility();
-    setPanMode(true);
-
     const zoneDefaults = { building: { width: 1000, height: 700 }, floor: { width: 820, height: 560 }, room: { width: 640, height: 420 } };
     const zoneLabels = { building: 'Building', floor: 'Floor', room: 'Room' };
     const fixturePrefixes = {
@@ -752,6 +749,9 @@
     const prefixCounters = {};
     const zoneCounters = { building: 0, floor: 0, room: 0 };
     const minZoneSize = { width: 140, height: 120 };
+
+    applyViewVisibility();
+    setPanMode(true);
 
     const sourceCatalog = [
       { id: 'WC', label: 'WC', flow: 2.5, diameter: 'DN110', wc: true },
