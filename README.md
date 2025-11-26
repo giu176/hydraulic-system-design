@@ -16,7 +16,7 @@ A lightweight, browser-based sketchpad for sizing small wastewater networks. Bui
 ## Flow and diameter logic
 - Enter a **k-factor** in the header (default 1.0) and press **Recompute flows** to apply the calculation.
 - Source nodes adopt the flow and base diameter of their selected fixture. All other nodes compute outgoing flow as **k·√ΣDU**, where ΣDU is the sum of incoming flows.
-- WC influence propagates downstream: any pipe carrying WC load is flagged and forced to **DN110**. Non-WC pipes take the larger of the source fixture diameter or a DN picked from flow: Q<1.5 ➝ DN50; 1.5–<2.25 ➝ DN63; 2.25–<3 ➝ DN70; 3–<3.4 ➝ DN75; 3.4–<3.75 ➝ DN80; ≥3.75 ➝ DN110.
+- WC influence propagates downstream: any pipe carrying WC load is flagged and forced to **DN110**. Non-WC pipes take the larger of the source fixture diameter or a DN picked from flow: Q<0.5 ➝ DN40; 0.5–<0.8 ➝ DN50; 0.8–<1 ➝ DN63; 1–<1.5 ➝ DN75; 1.5–<2 ➝ DN80; 2–<2.25 ➝ DN90; ≥2.25 ➝ DN110.
 - Edge labels show `flow l/s · DN` and stroke thickness scales with diameter. WC-carried edges use a cyan arrowhead.
 
 ## Working with the canvas
