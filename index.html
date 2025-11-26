@@ -653,7 +653,7 @@
     function projectCoefficient() {
       const parsed = parseFloat(kInput.value);
       if (!Number.isFinite(parsed) || parsed <= 0) return 1;
-      return Math.max(1, parsed);
+      return parsed;
     }
 
     function describeEdgeFlow(edge, fromNode) {
