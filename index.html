@@ -413,31 +413,55 @@
     }
 
     .graph-view {
-      display: grid;
+      display: none;
       grid-template-columns: 320px 1fr 320px;
       grid-template-rows: 1fr;
       grid-template-areas: "sidebar canvas inspector";
       gap: 12px;
     }
 
+    .graph-view.is-active {
+      display: grid;
+    }
+
     .summary-view {
-      display: flex;
+      display: none;
       flex-direction: column;
       gap: 12px;
+    }
+
+    .summary-view.is-active {
+      display: flex;
     }
 
     .summary-view .summary-panel {
       flex: 1;
     }
+
+    .view-mode-design #graph-view {
+      display: grid;
+    }
+
+    .view-mode-design #summary-view {
+      display: none;
+    }
+
+    .view-mode-summary #graph-view {
+      display: none;
+    }
+
+    .view-mode-summary #summary-view {
+      display: flex;
+    }
   </style>
 </head>
-<body class="view-graph">
+<body class="view-mode-design">
   <header>
     <div class="header-left">
       <h1>Wastewater Network Designer</h1>
       <div class="view-toggle" aria-label="Switch visualization mode">
-        <button class="view-button active" data-view="graph">Graph view</button>
-        <button class="view-button" data-view="summary">Summary view</button>
+        <button class="view-button active" data-view="design">Design</button>
+        <button class="view-button" data-view="summary">Summary</button>
       </div>
     </div>
     <div class="k-control">
@@ -562,12 +586,17 @@
     const graphView = document.getElementById('graph-view');
     const summaryView = document.getElementById('summary-view');
     const viewButtons = document.querySelectorAll('.view-button');
+    let activeView = 'design';
 
     function setViewMode(mode) {
-      document.body.classList.remove('view-graph', 'view-summary');
-      document.body.classList.add(`view-${mode}`);
-      graphView.hidden = mode !== 'graph';
-      summaryView.hidden = mode !== 'summary';
+      activeView = mode;
+      const designActive = mode === 'design';
+      document.body.classList.remove('view-mode-design', 'view-mode-summary');
+      document.body.classList.add(`view-mode-${mode}`);
+      graphView.hidden = !designActive;
+      summaryView.hidden = designActive;
+      graphView.classList.toggle('is-active', designActive);
+      summaryView.classList.toggle('is-active', !designActive);
       viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === mode));
     }
 
@@ -575,7 +604,7 @@
       btn.addEventListener('click', () => setViewMode(btn.dataset.view));
     });
 
-    setViewMode('graph');
+    setViewMode(activeView);
 
     const zoneDefaults = { building: { width: 1000, height: 700 }, floor: { width: 820, height: 560 }, room: { width: 640, height: 420 } };
     const zoneLabels = { building: 'Building', floor: 'Floor', room: 'Room' };
