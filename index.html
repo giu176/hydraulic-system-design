@@ -30,19 +30,13 @@
       color: var(--text);
       height: 100vh;
       overflow: hidden;
-      display: grid;
-      grid-template-columns: 320px 1fr 320px;
-      grid-template-rows: auto 1fr 280px;
-      grid-template-areas:
-        "header header header"
-        "sidebar canvas inspector"
-        "summary summary summary";
+      display: flex;
+      flex-direction: column;
       gap: 12px;
       padding: 12px;
     }
 
     header {
-      grid-area: header;
       background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0));
       border: 1px solid rgba(56, 189, 248, 0.25);
       border-radius: 12px;
@@ -52,6 +46,12 @@
       justify-content: space-between;
       backdrop-filter: blur(8px);
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     header h1 {
@@ -91,18 +91,12 @@
     }
 
     .sidebar {
-      grid-area: sidebar;
       display: flex;
       flex-direction: column;
       gap: 12px;
     }
 
-    .inspector {
-      grid-area: inspector;
-    }
-
     .summary-panel {
-      grid-area: summary;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -112,7 +106,6 @@
     }
 
     #canvas {
-      grid-area: canvas;
       background: linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px),
         linear-gradient(0deg, rgba(255,255,255,0.02) 1px, transparent 1px);
       background-size: 40px 40px;
@@ -381,11 +374,72 @@
       text-align: center;
       color: var(--muted);
     }
+
+    .view-toggle {
+      display: inline-flex;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 10px;
+      padding: 4px;
+      gap: 6px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .view-button {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .view-button:hover {
+      color: var(--text);
+    }
+
+    .view-button.active {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--text);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.15);
+    }
+
+    .view {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .graph-view {
+      display: grid;
+      grid-template-columns: 320px 1fr 320px;
+      grid-template-rows: 1fr;
+      grid-template-areas: "sidebar canvas inspector";
+      gap: 12px;
+    }
+
+    .summary-view {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .summary-view .summary-panel {
+      flex: 1;
+    }
   </style>
 </head>
-<body>
+<body class="view-graph">
   <header>
-    <h1>Wastewater Network Designer</h1>
+    <div class="header-left">
+      <h1>Wastewater Network Designer</h1>
+      <div class="view-toggle" aria-label="Switch visualization mode">
+        <button class="view-button active" data-view="graph">Graph view</button>
+        <button class="view-button" data-view="summary">Summary view</button>
+      </div>
+    </div>
     <div class="k-control">
       <span class="muted">Contemporary factor (k)</span>
       <input id="kInput" type="number" min="0" step="0.01" value="1.0" />
@@ -393,100 +447,104 @@
     </div>
   </header>
 
-  <div class="sidebar">
-    <div>
-      <div class="panel-title">Palette</div>
-      <div class="info">
-        <div class="pill">Create</div>
-        Click a button, then tap the canvas to add a node. Drag nodes to reposition. Connect outputs to inputs only.
-      </div>
-    </div>
-    <div class="actions">
-      <button class="action-btn" data-zone="building">Add building</button>
-      <button class="action-btn" data-zone="floor">Add floor</button>
-      <button class="action-btn" data-zone="room">Add room</button>
-    </div>
-    <div class="muted">Zones help organize the network. You can place nodes anywhere, but grouping them in zones keeps things tidy.</div>
-    <button class="node-button" data-type="source">
-      <span class="badge">Source</span>
+  <div id="graph-view" class="view graph-view">
+    <div class="sidebar">
       <div>
-        <div>Sanitary Fixture</div>
-        <div class="muted">WC, Lavabo, Doccia, …</div>
+        <div class="panel-title">Palette</div>
+        <div class="info">
+          <div class="pill">Create</div>
+          Click a button, then tap the canvas to add a node. Drag nodes to reposition. Connect outputs to inputs only.
+        </div>
       </div>
-    </button>
-    <button class="node-button" data-type="destination">
-      <span class="badge">Destination</span>
-      <div>
-        <div>Outlet</div>
-        <div class="muted">Terminal stack / discharge</div>
-      </div>
-    </button>
-    <button class="node-button" data-type="twoSplit">
-      <span class="badge">Split</span>
-      <div>
-        <div>Two-way merge</div>
-        <div class="muted">Two inputs ➝ one output</div>
-      </div>
-    </button>
-    <button class="node-button" data-type="threeSplit">
-      <span class="badge">Split</span>
-      <div>
-        <div>Three-way merge</div>
-        <div class="muted">Three inputs ➝ one output</div>
-      </div>
-    </button>
-    <div>
-      <div class="panel-title">Shortcuts</div>
       <div class="actions">
-        <button class="action-btn" id="delete-selection">Delete selected</button>
-        <button class="action-btn" id="clear-all">Clear all</button>
+        <button class="action-btn" data-zone="building">Add building</button>
+        <button class="action-btn" data-zone="floor">Add floor</button>
+        <button class="action-btn" data-zone="room">Add room</button>
       </div>
+      <div class="muted">Zones help organize the network. You can place nodes anywhere, but grouping them in zones keeps things tidy.</div>
+      <button class="node-button" data-type="source">
+        <span class="badge">Source</span>
+        <div>
+          <div>Sanitary Fixture</div>
+          <div class="muted">WC, Lavabo, Doccia, …</div>
+        </div>
+      </button>
+      <button class="node-button" data-type="destination">
+        <span class="badge">Destination</span>
+        <div>
+          <div>Outlet</div>
+          <div class="muted">Terminal stack / discharge</div>
+        </div>
+      </button>
+      <button class="node-button" data-type="twoSplit">
+        <span class="badge">Split</span>
+        <div>
+          <div>Two-way merge</div>
+          <div class="muted">Two inputs ➝ one output</div>
+        </div>
+      </button>
+      <button class="node-button" data-type="threeSplit">
+        <span class="badge">Split</span>
+        <div>
+          <div>Three-way merge</div>
+          <div class="muted">Three inputs ➝ one output</div>
+        </div>
+      </button>
+      <div>
+        <div class="panel-title">Shortcuts</div>
+        <div class="actions">
+          <button class="action-btn" id="delete-selection">Delete selected</button>
+          <button class="action-btn" id="clear-all">Clear all</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="canvas">
+      <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="6" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L10,3 L0,6 z" fill="#cbd5e1" />
+          </marker>
+          <marker id="arrow-wc" markerWidth="10" markerHeight="6" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L10,3 L0,6 z" fill="var(--accent)" />
+          </marker>
+        </defs>
+        <g id="zones"></g>
+        <g id="edges"></g>
+        <g id="nodes"></g>
+        <g id="overlay"></g>
+        <g id="zone-draft"></g>
+      </svg>
+    </div>
+
+    <div class="inspector">
+      <h3>Inspector</h3>
+      <div id="inspector-content" class="muted">Select a node or pipe to view details.</div>
     </div>
   </div>
 
-  <div id="canvas">
-    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <marker id="arrow" markerWidth="10" markerHeight="6" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L10,3 L0,6 z" fill="#cbd5e1" />
-        </marker>
-        <marker id="arrow-wc" markerWidth="10" markerHeight="6" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L10,3 L0,6 z" fill="var(--accent)" />
-        </marker>
-      </defs>
-      <g id="zones"></g>
-      <g id="edges"></g>
-      <g id="nodes"></g>
-      <g id="overlay"></g>
-      <g id="zone-draft"></g>
-    </svg>
-  </div>
-
-  <div class="inspector">
-    <h3>Inspector</h3>
-    <div id="inspector-content" class="muted">Select a node or pipe to view details.</div>
-  </div>
-
-  <div class="summary-panel">
-    <div class="panel-title">Network summary</div>
-    <div class="muted">Aggregated view of every pipe. Values refresh automatically as you edit the graph.</div>
-    <div class="summary-table-wrapper">
-      <table class="summary-table">
-        <thead>
-          <tr>
-            <th>Building</th>
-            <th>Floor</th>
-            <th>Room</th>
-            <th>Name</th>
-            <th>&#8721;DU</th>
-            <th>Q (l/s)</th>
-            <th>Diameter</th>
-          </tr>
-        </thead>
-        <tbody id="summary-body">
-          <tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>
-        </tbody>
-      </table>
+  <div id="summary-view" class="view summary-view" hidden>
+    <div class="summary-panel">
+      <div class="panel-title">Network summary</div>
+      <div class="muted">Aggregated view of every pipe. Values refresh automatically as you edit the graph.</div>
+      <div class="summary-table-wrapper">
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Building</th>
+              <th>Floor</th>
+              <th>Room</th>
+              <th>Name</th>
+              <th>&#8721;DU</th>
+              <th>Q (l/s)</th>
+              <th>Diameter</th>
+            </tr>
+          </thead>
+          <tbody id="summary-body">
+            <tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -501,6 +559,23 @@
     const kInput = document.getElementById('kInput');
     const recalcBtn = document.getElementById('recalc');
     const summaryBody = document.getElementById('summary-body');
+    const graphView = document.getElementById('graph-view');
+    const summaryView = document.getElementById('summary-view');
+    const viewButtons = document.querySelectorAll('.view-button');
+
+    function setViewMode(mode) {
+      document.body.classList.remove('view-graph', 'view-summary');
+      document.body.classList.add(`view-${mode}`);
+      graphView.hidden = mode !== 'graph';
+      summaryView.hidden = mode !== 'summary';
+      viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === mode));
+    }
+
+    viewButtons.forEach(btn => {
+      btn.addEventListener('click', () => setViewMode(btn.dataset.view));
+    });
+
+    setViewMode('graph');
 
     const zoneDefaults = { building: { width: 1000, height: 700 }, floor: { width: 820, height: 560 }, room: { width: 640, height: 420 } };
     const zoneLabels = { building: 'Building', floor: 'Floor', room: 'Room' };
