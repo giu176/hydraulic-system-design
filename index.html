@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wastewater Network Designer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --accent: #38bdf8;
+      --muted: #cbd5e1;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --warning: #f97316;
+      --card: #1f2937;
+      --text: #e2e8f0;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.12), transparent 25%),
+        radial-gradient(circle at 80% 0%, rgba(99, 102, 241, 0.1), transparent 28%),
+        var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 320px 1fr 320px;
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        "header header header"
+        "sidebar canvas inspector";
+      gap: 12px;
+      padding: 12px;
+    }
+
+    header {
+      grid-area: header;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0));
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.5px;
+    }
+
+    .k-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--panel);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      padding: 8px 12px;
+      border-radius: 10px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .k-control input {
+      width: 80px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      background: #0b1221;
+      color: var(--text);
+    }
+
+    .sidebar,
+    .inspector {
+      background: var(--panel);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    .sidebar {
+      grid-area: sidebar;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .inspector {
+      grid-area: inspector;
+    }
+
+    #canvas {
+      grid-area: canvas;
+      background: linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      margin-bottom: 8px;
+    }
+
+    .node-button {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: var(--card);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .node-button:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .node-button.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+
+    .badge {
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 11px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--text);
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .action-btn {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: #0b1221;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .action-btn:hover {
+      border-color: var(--accent);
+    }
+
+    .property-group {
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      padding-bottom: 12px;
+    }
+
+    .property-group:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    select,
+    input[type="number"] {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: #0b1221;
+      color: var(--text);
+    }
+
+    .inspector h3 {
+      margin-top: 0;
+    }
+
+    .stat {
+      display: grid;
+      grid-template-columns: auto auto;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .stat strong {
+      text-align: right;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+      cursor: default;
+    }
+
+    .node {
+      filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+      transition: transform 0.15s ease;
+    }
+
+    .node rect {
+      fill: var(--card);
+      stroke: rgba(148, 163, 184, 0.35);
+      stroke-width: 1.5;
+    }
+
+    .node text {
+      fill: var(--text);
+      font-weight: 600;
+    }
+
+    .port {
+      stroke: #0b1221;
+      stroke-width: 1.4;
+      cursor: pointer;
+    }
+
+    .port.input {
+      fill: #6366f1;
+    }
+
+    .port.output {
+      fill: #22c55e;
+    }
+
+    .edge {
+      fill: none;
+      stroke: var(--muted);
+      opacity: 0.9;
+      transition: stroke 0.2s ease, stroke-width 0.2s ease;
+    }
+
+    .edge.connected-wc {
+      stroke: var(--accent);
+    }
+
+    .edge-label {
+      fill: var(--text);
+      font-size: 12px;
+      paint-order: stroke;
+      stroke: rgba(15, 23, 42, 0.65);
+      stroke-width: 2px;
+    }
+
+    .selection {
+      stroke: var(--accent);
+      stroke-width: 2.2;
+      fill: none;
+      stroke-dasharray: 4 2;
+    }
+
+    .info {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      margin-right: 6px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Wastewater Network Designer</h1>
+    <div class="k-control">
+      <span class="muted">Contemporary factor (k)</span>
+      <input id="kInput" type="number" min="0" step="0.01" value="1.0" />
+      <button class="action-btn" id="recalc">Recalculate</button>
+    </div>
+  </header>
+
+  <div class="sidebar">
+    <div>
+      <div class="panel-title">Palette</div>
+      <div class="info">
+        <div class="pill">Create</div>
+        Click a button, then tap the canvas to add a node. Drag nodes to reposition. Connect outputs to inputs only.
+      </div>
+    </div>
+    <button class="node-button" data-type="source">
+      <span class="badge">Source</span>
+      <div>
+        <div>Sanitary Fixture</div>
+        <div class="muted">WC, Lavabo, Doccia, …</div>
+      </div>
+    </button>
+    <button class="node-button" data-type="destination">
+      <span class="badge">Destination</span>
+      <div>
+        <div>Outlet</div>
+        <div class="muted">Terminal stack / discharge</div>
+      </div>
+    </button>
+    <button class="node-button" data-type="twoSplit">
+      <span class="badge">Split</span>
+      <div>
+        <div>Two-way merge</div>
+        <div class="muted">Two inputs ➝ one output</div>
+      </div>
+    </button>
+    <button class="node-button" data-type="threeSplit">
+      <span class="badge">Split</span>
+      <div>
+        <div>Three-way merge</div>
+        <div class="muted">Three inputs ➝ one output</div>
+      </div>
+    </button>
+    <div>
+      <div class="panel-title">Shortcuts</div>
+      <div class="actions">
+        <button class="action-btn" id="delete-selection">Delete selected</button>
+        <button class="action-btn" id="clear-all">Clear all</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="canvas">
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="6" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L10,3 L0,6 z" fill="#cbd5e1" />
+        </marker>
+        <marker id="arrow-wc" markerWidth="10" markerHeight="6" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L10,3 L0,6 z" fill="var(--accent)" />
+        </marker>
+      </defs>
+      <g id="edges"></g>
+      <g id="nodes"></g>
+    </svg>
+  </div>
+
+  <div class="inspector">
+    <h3>Inspector</h3>
+    <div id="inspector-content" class="muted">Select a node or pipe to view details.</div>
+  </div>
+
+  <script>
+    const svg = document.getElementById('svg');
+    const nodesLayer = document.getElementById('nodes');
+    const edgesLayer = document.getElementById('edges');
+    const inspector = document.getElementById('inspector-content');
+    const kInput = document.getElementById('kInput');
+    const recalcBtn = document.getElementById('recalc');
+
+    let nodes = [];
+    let edges = [];
+    let selected = null;
+    let creationType = null;
+    let draggingNode = null;
+    let dragOffset = { x: 0, y: 0 };
+    let pendingConnection = null;
+
+    const sourceCatalog = [
+      { id: 'WC', label: 'WC', flow: 2.5, diameter: 'DN110', wc: true },
+      { id: 'Lavabo', label: 'Lavabo', flow: 0.5, diameter: 'DN40', wc: false },
+      { id: 'Bide', label: 'Bidè', flow: 0.5, diameter: 'DN40', wc: false },
+      { id: 'Doccia', label: 'Doccia', flow: 0.8, diameter: 'DN50', wc: false },
+      { id: 'Vasca', label: 'Vasca', flow: 0.8, diameter: 'DN50', wc: false },
+      { id: 'Lavastoviglie', label: 'Lavastoviglie', flow: 0.8, diameter: 'DN50', wc: false },
+      { id: 'Lavatrice', label: 'Lavatrice', flow: 0.8, diameter: 'DN50', wc: false },
+      { id: 'Lavello', label: 'Lavello', flow: 0.8, diameter: 'DN50', wc: false },
+    ];
+
+    function generateId(prefix) {
+      return prefix + '_' + Math.random().toString(36).slice(2, 8);
+    }
+
+    function setCreationType(type) {
+      creationType = type;
+      document.querySelectorAll('.node-button').forEach(btn => btn.classList.toggle('active', btn.dataset.type === type));
+    }
+
+    document.querySelectorAll('.node-button').forEach(btn => {
+      btn.addEventListener('click', () => setCreationType(btn.dataset.type));
+    });
+
+    function canvasPoint(evt) {
+      const rect = svg.getBoundingClientRect();
+      return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+    }
+
+    svg.addEventListener('click', evt => {
+      if (evt.target === svg && creationType) {
+        const pt = canvasPoint(evt);
+        createNode(creationType, pt.x, pt.y);
+        render();
+      }
+    });
+
+    function createNode(type, x, y) {
+      const node = {
+        id: generateId('n'),
+        type,
+        label: type === 'source' ? 'Source' : type === 'destination' ? 'Destination' : type === 'twoSplit' ? 'Two-way split' : 'Three-way split',
+        x,
+        y,
+        data: {}
+      };
+
+      if (type === 'source') {
+        node.data.sourceType = sourceCatalog[0].id;
+      }
+
+      nodes.push(node);
+      setCreationType(null);
+    }
+
+    function getNodeById(id) {
+      return nodes.find(n => n.id === id);
+    }
+
+    function getEdgesFrom(nodeId) {
+      return edges.filter(e => e.from === nodeId);
+    }
+
+    function getEdgesTo(nodeId) {
+      return edges.filter(e => e.to === nodeId);
+    }
+
+    function portPositions(node) {
+      const width = 140;
+      const height = 70;
+      const inputs = [];
+      const outputs = [];
+
+      if (node.type === 'source') {
+        outputs.push({ x: node.x + width / 2, y: node.y });
+      } else if (node.type === 'destination') {
+        inputs.push({ x: node.x - width / 2, y: node.y });
+      } else if (node.type === 'twoSplit') {
+        inputs.push({ x: node.x - width / 2, y: node.y - 14 });
+        inputs.push({ x: node.x - width / 2, y: node.y + 14 });
+        outputs.push({ x: node.x + width / 2, y: node.y });
+      } else if (node.type === 'threeSplit') {
+        inputs.push({ x: node.x - width / 2, y: node.y - 20 });
+        inputs.push({ x: node.x - width / 2, y: node.y });
+        inputs.push({ x: node.x - width / 2, y: node.y + 20 });
+        outputs.push({ x: node.x + width / 2, y: node.y });
+      }
+
+      return { inputs, outputs, width, height };
+    }
+
+    function allowedInputCount(node) {
+      if (node.type === 'twoSplit') return 2;
+      if (node.type === 'threeSplit') return 3;
+      return Infinity;
+    }
+
+    function handlePortClick(node, portType, evt) {
+      evt.stopPropagation();
+      if (portType === 'output') {
+        pendingConnection = { from: node.id };
+        setSelected(null);
+      } else if (portType === 'input') {
+        if (!pendingConnection) return;
+        if (pendingConnection.from === node.id) return;
+        const incoming = getEdgesTo(node.id).length;
+        if (incoming >= allowedInputCount(node)) {
+          alert('Input capacity reached for this node.');
+          pendingConnection = null;
+          return;
+        }
+        edges.push({ id: generateId('e'), from: pendingConnection.from, to: node.id });
+        pendingConnection = null;
+        recompute();
+        render();
+      }
+    }
+
+    function setSelected(item) {
+      selected = item;
+      renderInspector();
+      render();
+    }
+
+    function renderInspector() {
+      if (!selected) {
+        inspector.innerHTML = '<div class="muted">Select a node or pipe to view details.</div>';
+        return;
+      }
+
+      if (selected.type === 'edge') {
+        const edge = edges.find(e => e.id === selected.id);
+        const from = getNodeById(edge.from);
+        const to = getNodeById(edge.to);
+        inspector.innerHTML = `
+          <div class="property-group">
+            <div class="panel-title">Pipe</div>
+            <div class="muted">${from.label} ➝ ${to.label}</div>
+          </div>
+          <div class="property-group">
+            <div class="stat"><span>Flow rate (Q)</span><strong>${(edge.flowRate ?? 0).toFixed(2)} l/s</strong></div>
+            <div class="stat"><span>Diameter</span><strong>${edge.diameter || '—'}</strong></div>
+            <div class="stat"><span>Connected to WC</span><strong>${edge.isConnectedToWC ? 'Yes' : 'No'}</strong></div>
+          </div>
+          <button class="action-btn" onclick="deleteEdge('${edge.id}')">Delete pipe</button>
+        `;
+        return;
+      }
+
+      const node = getNodeById(selected.id);
+      let extraFields = '';
+
+      if (node.type === 'source') {
+        const options = sourceCatalog.map(s => `<option value="${s.id}" ${node.data.sourceType === s.id ? 'selected' : ''}>${s.label} (${s.flow} l/s, ${s.diameter})</option>`).join('');
+        extraFields = `
+          <label>Fixture type</label>
+          <select onchange="updateSourceType('${node.id}', this.value)">${options}</select>
+        `;
+      } else if (node.type === 'destination') {
+        extraFields = `
+          <label>Design flow (optional)</label>
+          <input type="number" step="0.1" value="${node.data.designFlow ?? ''}" oninput="updateDestinationFlow('${node.id}', this.value)" />
+        `;
+      }
+
+      inspector.innerHTML = `
+        <div class="property-group">
+          <div class="panel-title">${node.label}</div>
+          <label>Name</label>
+          <input type="text" value="${node.label}" oninput="renameNode('${node.id}', this.value)" />
+        </div>
+        ${extraFields ? `<div class="property-group">${extraFields}</div>` : ''}
+        <div class="property-group">
+          <div class="stat"><span>Outgoing flow</span><strong>${(node.computedFlow ?? 0).toFixed(2)} l/s</strong></div>
+          <div class="stat"><span>WC influence</span><strong>${node.hasWC ? 'Yes' : 'No'}</strong></div>
+        </div>
+        <button class="action-btn" onclick="deleteNode('${node.id}')">Delete node</button>
+      `;
+    }
+
+    window.renameNode = function (id, value) {
+      const node = getNodeById(id);
+      node.label = value || node.label;
+      render();
+    }
+
+    window.updateSourceType = function (id, typeId) {
+      const node = getNodeById(id);
+      node.data.sourceType = typeId;
+      recompute();
+      render();
+      renderInspector();
+    }
+
+    window.updateDestinationFlow = function (id, val) {
+      const node = getNodeById(id);
+      node.data.designFlow = val ? parseFloat(val) : null;
+      renderInspector();
+    }
+
+    window.deleteNode = function (id) {
+      nodes = nodes.filter(n => n.id !== id);
+      edges = edges.filter(e => e.from !== id && e.to !== id);
+      setSelected(null);
+      recompute();
+      render();
+    }
+
+    window.deleteEdge = function (id) {
+      edges = edges.filter(e => e.id !== id);
+      setSelected(null);
+      recompute();
+      render();
+    }
+
+    document.getElementById('delete-selection').addEventListener('click', () => {
+      if (!selected) return;
+      if (selected.type === 'edge') {
+        deleteEdge(selected.id);
+      } else {
+        deleteNode(selected.id);
+      }
+    });
+
+    document.getElementById('clear-all').addEventListener('click', () => {
+      if (confirm('Clear all nodes and pipes?')) {
+        nodes = [];
+        edges = [];
+        setSelected(null);
+        render();
+      }
+    });
+
+    function diameterFromFlow(flow) {
+      const rate = flow;
+      // Assuming initial threshold is 1.5 l/s (the sequence aligns with provided brackets)
+      if (rate < 1.5) return 'DN50';
+      if (rate >= 1.5 && rate < 2.25) return 'DN63';
+      if (rate >= 2.25 && rate < 3) return 'DN70';
+      if (rate >= 3 && rate < 3.4) return 'DN75';
+      if (rate >= 3.4 && rate < 3.75) return 'DN80';
+      return 'DN110';
+    }
+
+    function recompute() {
+      const indegree = new Map();
+      nodes.forEach(n => {
+        indegree.set(n.id, getEdgesTo(n.id).length);
+        n.computedFlow = null;
+        n.hasWC = false;
+      });
+
+      const q = [];
+      nodes.forEach(n => {
+        if (n.type === 'source') q.push(n);
+      });
+
+      const k = parseFloat(kInput.value) || 0;
+
+      while (q.length) {
+        const node = q.shift();
+        const inEdges = getEdgesTo(node.id);
+        const incomingFlows = inEdges.map(e => e.flowRate || 0);
+        const incomingWC = inEdges.some(e => e.isConnectedToWC);
+
+        if (node.type === 'source') {
+          const meta = sourceCatalog.find(s => s.id === node.data.sourceType) || sourceCatalog[0];
+          node.computedFlow = meta.flow;
+          node.hasWC = meta.wc;
+        } else if (node.type === 'twoSplit' || node.type === 'threeSplit' || node.type === 'destination') {
+          const sum = incomingFlows.reduce((a, b) => a + b, 0);
+          node.computedFlow = sum > 0 ? k * Math.sqrt(sum) : 0;
+          node.hasWC = incomingWC;
+        }
+
+        getEdgesFrom(node.id).forEach(e => {
+          const target = getNodeById(e.to);
+          e.flowRate = node.computedFlow || 0;
+
+          const meta = node.type === 'source' ? sourceCatalog.find(s => s.id === node.data.sourceType) : null;
+          const baseDiameter = meta ? meta.diameter : diameterFromFlow(e.flowRate);
+          const isWC = node.hasWC;
+          e.isConnectedToWC = isWC;
+          e.diameter = isWC ? 'DN110' : baseDiameter;
+
+          target.hasWC = target.hasWC || e.isConnectedToWC;
+          indegree.set(target.id, indegree.get(target.id) - 1);
+          if (indegree.get(target.id) === 0) q.push(target);
+        });
+      }
+    }
+
+    function edgeThickness(diameter) {
+      const numeric = parseInt(diameter.replace('DN', '')) || 50;
+      return Math.max(2, numeric / 25);
+    }
+
+    function render() {
+      edgesLayer.innerHTML = '';
+      nodesLayer.innerHTML = '';
+
+      edges.forEach(edge => {
+        const from = getNodeById(edge.from);
+        const to = getNodeById(edge.to);
+        if (!from || !to) return;
+        const fromPorts = portPositions(from);
+        const toPorts = portPositions(to);
+        const start = fromPorts.outputs[0];
+        const end = toPorts.inputs[Math.min(toPorts.inputs.length - 1, getEdgesTo(to.id).indexOf(edge))] || toPorts.inputs[0];
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const d = `M ${start.x} ${start.y} C ${start.x + 60} ${start.y}, ${end.x - 60} ${end.y}, ${end.x} ${end.y}`;
+        path.setAttribute('d', d);
+        path.setAttribute('class', `edge ${edge.isConnectedToWC ? 'connected-wc' : ''}`);
+        path.setAttribute('stroke-width', edgeThickness(edge.diameter || 'DN50'));
+        path.setAttribute('marker-end', edge.isConnectedToWC ? 'url(#arrow-wc)' : 'url(#arrow)');
+        path.addEventListener('click', evt => {
+          evt.stopPropagation();
+          setSelected({ type: 'edge', id: edge.id });
+        });
+        edgesLayer.appendChild(path);
+
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('class', 'edge-label');
+        const midX = (start.x + end.x) / 2;
+        const midY = (start.y + end.y) / 2 - 6;
+        label.setAttribute('x', midX);
+        label.setAttribute('y', midY);
+        const flow = edge.flowRate ? edge.flowRate.toFixed(2) : '0.00';
+        label.textContent = `${flow} l/s · ${edge.diameter || 'DN?'}`;
+        edgesLayer.appendChild(label);
+
+        if (selected && selected.type === 'edge' && selected.id === edge.id) {
+          const outline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          outline.setAttribute('d', d);
+          outline.setAttribute('class', 'selection');
+          edgesLayer.appendChild(outline);
+        }
+      });
+
+      nodes.forEach(node => {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'node');
+        g.setAttribute('transform', `translate(${node.x} ${node.y})`);
+        const { width, height, inputs, outputs } = portPositions(node);
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', -width / 2);
+        rect.setAttribute('y', -height / 2);
+        rect.setAttribute('rx', 12);
+        rect.setAttribute('ry', 12);
+        rect.setAttribute('width', width);
+        rect.setAttribute('height', height);
+        g.appendChild(rect);
+
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        title.setAttribute('x', 0);
+        title.setAttribute('y', -6);
+        title.setAttribute('text-anchor', 'middle');
+        title.textContent = node.label;
+        g.appendChild(title);
+
+        const metaText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        metaText.setAttribute('x', 0);
+        metaText.setAttribute('y', 14);
+        metaText.setAttribute('text-anchor', 'middle');
+        metaText.setAttribute('fill', '#cbd5e1');
+        if (node.type === 'source') {
+          const meta = sourceCatalog.find(s => s.id === node.data.sourceType) || sourceCatalog[0];
+          metaText.textContent = `${meta.label} · ${meta.flow} l/s · ${meta.diameter}`;
+        } else if (node.type === 'destination') {
+          metaText.textContent = `Demand ${node.data.designFlow ?? '—'} l/s`;
+        } else {
+          metaText.textContent = 'Merge outputs';
+        }
+        g.appendChild(metaText);
+
+        inputs.forEach(pt => {
+          const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          c.setAttribute('class', 'port input');
+          c.setAttribute('r', 6);
+          c.setAttribute('cx', pt.x - node.x);
+          c.setAttribute('cy', pt.y - node.y);
+          c.addEventListener('click', evt => handlePortClick(node, 'input', evt));
+          g.appendChild(c);
+        });
+
+        outputs.forEach(pt => {
+          const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          c.setAttribute('class', 'port output');
+          c.setAttribute('r', 6);
+          c.setAttribute('cx', pt.x - node.x);
+          c.setAttribute('cy', pt.y - node.y);
+          c.addEventListener('click', evt => handlePortClick(node, 'output', evt));
+          g.appendChild(c);
+        });
+
+        g.addEventListener('mousedown', evt => startDrag(node, evt));
+        g.addEventListener('click', evt => {
+          evt.stopPropagation();
+          setSelected({ type: 'node', id: node.id });
+        });
+
+        nodesLayer.appendChild(g);
+
+        if (selected && selected.type === 'node' && selected.id === node.id) {
+          const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          outline.setAttribute('class', 'selection');
+          outline.setAttribute('x', -width / 2 - 4);
+          outline.setAttribute('y', -height / 2 - 4);
+          outline.setAttribute('rx', 14);
+          outline.setAttribute('ry', 14);
+          outline.setAttribute('width', width + 8);
+          outline.setAttribute('height', height + 8);
+          g.appendChild(outline);
+        }
+      });
+    }
+
+    function startDrag(node, evt) {
+      draggingNode = node;
+      const pt = canvasPoint(evt);
+      dragOffset.x = node.x - pt.x;
+      dragOffset.y = node.y - pt.y;
+      document.addEventListener('mousemove', onDrag);
+      document.addEventListener('mouseup', endDrag);
+    }
+
+    function onDrag(evt) {
+      if (!draggingNode) return;
+      const pt = canvasPoint(evt);
+      draggingNode.x = pt.x + dragOffset.x;
+      draggingNode.y = pt.y + dragOffset.y;
+      render();
+    }
+
+    function endDrag() {
+      draggingNode = null;
+      document.removeEventListener('mousemove', onDrag);
+      document.removeEventListener('mouseup', endDrag);
+      recompute();
+    }
+
+    recalcBtn.addEventListener('click', () => {
+      recompute();
+      render();
+    });
+
+    svg.addEventListener('click', () => setSelected(null));
+
+    // Initial demo scene
+    createNode('source', 200, 180);
+    createNode('source', 200, 320);
+    createNode('twoSplit', 480, 250);
+    createNode('destination', 780, 250);
+    edges.push({ id: generateId('e'), from: nodes[0].id, to: nodes[2].id });
+    edges.push({ id: generateId('e'), from: nodes[1].id, to: nodes[2].id });
+    edges.push({ id: generateId('e'), from: nodes[2].id, to: nodes[3].id });
+
+    recompute();
+    render();
+  </script>
+</body>
+</html>
