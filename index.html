@@ -298,6 +298,17 @@
       margin-right: 6px;
       font-size: 12px;
     }
+
+    .zone {
+      stroke-width: 2;
+      fill-opacity: 0.08;
+      cursor: move;
+    }
+
+    .zone.building { stroke: #f59e0b; fill: #f59e0b; }
+    .zone.floor { stroke: #10b981; fill: #10b981; }
+    .zone.room { stroke: #6366f1; fill: #6366f1; }
+    .zone-label { fill: var(--text); font-weight: 700; pointer-events: none; }
   </style>
 </head>
 <body>
@@ -318,6 +329,12 @@
         Click a button, then tap the canvas to add a node. Drag nodes to reposition. Connect outputs to inputs only.
       </div>
     </div>
+    <div class="actions">
+      <button class="action-btn" data-zone="building">Add building</button>
+      <button class="action-btn" data-zone="floor">Add floor</button>
+      <button class="action-btn" data-zone="room">Add room</button>
+    </div>
+    <div class="muted">Zones help organize the network. Nodes must live inside a building, floor, and room.</div>
     <button class="node-button" data-type="source">
       <span class="badge">Source</span>
       <div>
@@ -365,6 +382,7 @@
           <path d="M0,0 L10,3 L0,6 z" fill="var(--accent)" />
         </marker>
       </defs>
+      <g id="zones"></g>
       <g id="edges"></g>
       <g id="nodes"></g>
     </svg>
@@ -377,19 +395,41 @@
 
   <script>
     const svg = document.getElementById('svg');
+    const zonesLayer = document.getElementById('zones');
     const nodesLayer = document.getElementById('nodes');
     const edgesLayer = document.getElementById('edges');
     const inspector = document.getElementById('inspector-content');
     const kInput = document.getElementById('kInput');
     const recalcBtn = document.getElementById('recalc');
 
+    const zoneDefaults = { building: { width: 1000, height: 700 }, floor: { width: 820, height: 560 }, room: { width: 640, height: 420 } };
+    const zoneLabels = { building: 'Building', floor: 'Floor', room: 'Room' };
+    const fixturePrefixes = {
+      WC: 'WC',
+      Lavabo: 'LB',
+      Bidè: 'BI',
+      Doccia: 'DO',
+      Vasca: 'VA',
+      Lavastoviglie: 'LS',
+      Lavatrice: 'LT',
+      Lavello: 'LA',
+    };
+
     let nodes = [];
+    let zones = [];
     let edges = [];
     let selected = null;
     let creationType = null;
+    let creationZoneType = null;
     let draggingNode = null;
+    let draggingZone = null;
     let dragOffset = { x: 0, y: 0 };
+    let zoneDragOffset = { x: 0, y: 0 };
+    let nodeDragStart = null;
+    let zoneDragSnapshot = null;
     let pendingConnection = null;
+    const prefixCounters = {};
+    const zoneCounters = { building: 0, floor: 0, room: 0 };
 
     const sourceCatalog = [
       { id: 'WC', label: 'WC', flow: 2.5, diameter: 'DN110', wc: true },
@@ -406,13 +446,54 @@
       return prefix + '_' + Math.random().toString(36).slice(2, 8);
     }
 
+    function nextCode(prefix) {
+      prefixCounters[prefix] = (prefixCounters[prefix] || 0) + 1;
+      return `${prefix}${prefixCounters[prefix]}`;
+    }
+
+    function prefixForNode(node) {
+      if (node.type === 'twoSplit') return 'Y';
+      if (node.type === 'threeSplit') return 'W';
+      if (node.type === 'destination') return 'DS';
+      if (node.type === 'source') {
+        const meta = sourceCatalog.find(s => s.id === node.data.sourceType) || sourceCatalog[0];
+        return fixturePrefixes[meta.id] || 'ND';
+      }
+      return 'ND';
+    }
+
+    function assignNodeCode(node, force) {
+      const prefix = prefixForNode(node);
+      if (force || !node.code || !node.code.startsWith(prefix)) {
+        node.code = nextCode(prefix);
+      }
+    }
+
+    function nextZoneName(type) {
+      zoneCounters[type] += 1;
+      return `${zoneLabels[type]} ${zoneCounters[type]}`;
+    }
+
     function setCreationType(type) {
       creationType = type;
+      creationZoneType = null;
       document.querySelectorAll('.node-button').forEach(btn => btn.classList.toggle('active', btn.dataset.type === type));
+      document.querySelectorAll('[data-zone]').forEach(btn => btn.classList.remove('active'));
+    }
+
+    function setZoneCreation(type) {
+      creationZoneType = type;
+      creationType = null;
+      document.querySelectorAll('.node-button').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('[data-zone]').forEach(btn => btn.classList.toggle('active', btn.dataset.zone === type));
     }
 
     document.querySelectorAll('.node-button').forEach(btn => {
       btn.addEventListener('click', () => setCreationType(btn.dataset.type));
+    });
+
+    document.querySelectorAll('[data-zone]').forEach(btn => {
+      btn.addEventListener('click', () => setZoneCreation(btn.dataset.zone));
     });
 
     function canvasPoint(evt) {
@@ -421,10 +502,23 @@
     }
 
     svg.addEventListener('click', evt => {
-      if (evt.target === svg && creationType) {
+      const targetIsZone = evt.target.classList && evt.target.classList.contains('zone');
+      const onCanvas = evt.target === svg || targetIsZone;
+      if (onCanvas && creationType) {
         const pt = canvasPoint(evt);
-        createNode(creationType, pt.x, pt.y);
+        const created = createNode(creationType, pt.x, pt.y);
+        if (created) {
+          recompute();
+          render();
+          renderInspector();
+        }
+        return;
+      }
+      if (onCanvas && creationZoneType) {
+        const pt = canvasPoint(evt);
+        createZone(creationZoneType, pt.x, pt.y);
         render();
+        return;
       }
     });
 
@@ -442,8 +536,16 @@
         node.data.sourceType = sourceCatalog[0].id;
       }
 
+      assignNodeCode(node, true);
       nodes.push(node);
+      const withinZones = assignNodeLocation(node);
+      if (!withinZones) {
+        alert('Nodes must be placed inside a building, floor, and room. Draw zones first or click inside them.');
+        nodes = nodes.filter(n => n.id !== node.id);
+        return false;
+      }
       setCreationType(null);
+      return true;
     }
 
     function getNodeById(id) {
@@ -456,6 +558,77 @@
 
     function getEdgesTo(nodeId) {
       return edges.filter(e => e.to === nodeId);
+    }
+
+    function getZoneById(id) {
+      return zones.find(z => z.id === id);
+    }
+
+    function zoneContains(zone, x, y) {
+      return x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height;
+    }
+
+    function containingZone(type, x, y) {
+      const matches = zones.filter(z => z.type === type && zoneContains(z, x, y));
+      return matches.sort((a, b) => a.width * a.height - b.width * b.height)[0];
+    }
+
+    function assignNodeLocation(node) {
+      const building = containingZone('building', node.x, node.y);
+      const floor = containingZone('floor', node.x, node.y);
+      const room = containingZone('room', node.x, node.y);
+      node.buildingId = building?.id || null;
+      node.floorId = floor?.id || null;
+      node.roomId = room?.id || null;
+      return Boolean(building && floor && room);
+    }
+
+    function updateNodeLocations() {
+      nodes.forEach(assignNodeLocation);
+    }
+
+    function zoneNameById(id) {
+      const z = getZoneById(id);
+      return z ? z.name : '—';
+    }
+
+    function nodeLocation(node) {
+      return {
+        building: zoneNameById(node.buildingId),
+        floor: zoneNameById(node.floorId),
+        room: zoneNameById(node.roomId),
+        valid: Boolean(node.buildingId && node.floorId && node.roomId),
+      };
+    }
+
+    function applyZoneChange(mutator, messageOnFail) {
+      const snapshot = zones.map(z => ({ ...z }));
+      mutator();
+      const valid = nodes.every(assignNodeLocation);
+      if (!valid) {
+        zones = snapshot;
+        updateNodeLocations();
+        if (messageOnFail) alert(messageOnFail);
+        return false;
+      }
+      updateNodeLocations();
+      return true;
+    }
+
+    function createZone(type, x, y) {
+      const { width, height } = zoneDefaults[type];
+      const zone = {
+        id: generateId('z'),
+        type,
+        name: nextZoneName(type),
+        x: x - width / 2,
+        y: y - height / 2,
+        width,
+        height,
+      };
+      zones.push(zone);
+      setZoneCreation(null);
+      updateNodeLocations();
     }
 
     function portPositions(node) {
@@ -527,11 +700,11 @@
         const to = getNodeById(edge.to);
         const flowExplanation = describeEdgeFlow(edge, from);
         const diameterExplanation = describeEdgeDiameter(edge, from);
-        inspector.innerHTML = `
-          <div class="property-group">
-            <div class="panel-title">Pipe</div>
-            <div class="muted">${from.label} ➝ ${to.label}</div>
-          </div>
+      inspector.innerHTML = `
+        <div class="property-group">
+          <div class="panel-title">Pipe</div>
+          <div class="muted">${from.label} ➝ ${to.label}</div>
+        </div>
           <div class="property-group">
             <div class="stat"><span>Flow rate (Q)</span><strong>${(edge.flowRate ?? 0).toFixed(2)} l/s</strong></div>
             <div class="stat"><span>Diameter</span><strong>${edge.diameter || '—'}</strong></div>
@@ -544,7 +717,32 @@
         return;
       }
 
+      if (selected.type === 'zone') {
+        const zone = getZoneById(selected.id);
+        if (!zone) return;
+        inspector.innerHTML = `
+          <div class="property-group">
+            <div class="panel-title">${zoneLabels[zone.type]} zone</div>
+            <label>Name</label>
+            <input type="text" value="${zone.name}" oninput="renameZone('${zone.id}', this.value)" />
+          </div>
+          <div class="property-group">
+            <label>Position (x, y)</label>
+            <div class="stat"><span>X</span><strong><input type="number" value="${zone.x.toFixed(0)}" oninput="updateZonePosition('${zone.id}', 'x', this.value)" /></strong></div>
+            <div class="stat"><span>Y</span><strong><input type="number" value="${zone.y.toFixed(0)}" oninput="updateZonePosition('${zone.id}', 'y', this.value)" /></strong></div>
+          </div>
+          <div class="property-group">
+            <label>Size (width, height)</label>
+            <div class="stat"><span>Width</span><strong><input type="number" value="${zone.width.toFixed(0)}" oninput="updateZoneDimension('${zone.id}', 'width', this.value)" /></strong></div>
+            <div class="stat"><span>Height</span><strong><input type="number" value="${zone.height.toFixed(0)}" oninput="updateZoneDimension('${zone.id}', 'height', this.value)" /></strong></div>
+          </div>
+          <button class="action-btn" onclick="deleteZone('${zone.id}')">Delete zone</button>
+        `;
+        return;
+      }
+
       const node = getNodeById(selected.id);
+      const locationInfo = nodeLocation(node);
       let extraFields = '';
 
       if (node.type === 'source') {
@@ -566,13 +764,62 @@
           <label>Name</label>
           <input type="text" value="${node.label}" oninput="renameNode('${node.id}', this.value)" />
         </div>
+        <div class="property-group">
+          <div class="stat"><span>System name</span><strong>${node.code}</strong></div>
+        </div>
         ${extraFields ? `<div class="property-group">${extraFields}</div>` : ''}
+        <div class="property-group">
+          <div class="stat"><span>Building</span><strong>${locationInfo.building}</strong></div>
+          <div class="stat"><span>Floor</span><strong>${locationInfo.floor}</strong></div>
+          <div class="stat"><span>Room</span><strong>${locationInfo.room}</strong></div>
+          ${!locationInfo.valid ? '<div class="muted">Place the node inside a building, floor, and room.</div>' : ''}
+        </div>
         <div class="property-group">
           <div class="stat"><span>Outgoing flow</span><strong>${(node.computedFlow ?? 0).toFixed(2)} l/s</strong></div>
           <div class="stat"><span>WC influence</span><strong>${node.hasWC ? 'Yes' : 'No'}</strong></div>
         </div>
         <button class="action-btn" onclick="deleteNode('${node.id}')">Delete node</button>
       `;
+    }
+
+    window.renameZone = function (id, value) {
+      const zone = getZoneById(id);
+      if (!zone) return;
+      zone.name = value || zone.name;
+      updateNodeLocations();
+      renderInspector();
+      render();
+    }
+
+    window.updateZoneDimension = function (id, field, value) {
+      const zone = getZoneById(id);
+      if (!zone) return;
+      const numeric = parseFloat(value);
+      if (!numeric || numeric <= 0) return;
+      const message = 'Zones must continue covering nodes. Size change reverted.';
+      applyZoneChange(() => { zone[field] = numeric; }, message);
+      render();
+      renderInspector();
+    }
+
+    window.updateZonePosition = function (id, field, value) {
+      const zone = getZoneById(id);
+      if (!zone) return;
+      const numeric = parseFloat(value);
+      if (Number.isNaN(numeric)) return;
+      const message = 'Zones must continue covering nodes. Move reverted.';
+      applyZoneChange(() => { zone[field] = numeric; }, message);
+      render();
+      renderInspector();
+    }
+
+    window.deleteZone = function (id) {
+      const message = 'Cannot delete this zone because nodes would fall outside a building, floor, or room.';
+      if (applyZoneChange(() => { zones = zones.filter(z => z.id !== id); }, message)) {
+        setSelected(null);
+        render();
+        renderInspector();
+      }
     }
 
     window.renameNode = function (id, value) {
@@ -584,6 +831,7 @@
     window.updateSourceType = function (id, typeId) {
       const node = getNodeById(id);
       node.data.sourceType = typeId;
+      assignNodeCode(node, true);
       recompute();
       render();
       renderInspector();
@@ -615,6 +863,8 @@
       if ((evt.key === 'Delete' || evt.key === 'Backspace') && selected) {
         if (selected.type === 'edge') {
           deleteEdge(selected.id);
+        } else if (selected.type === 'zone') {
+          deleteZone(selected.id);
         } else {
           deleteNode(selected.id);
         }
@@ -625,6 +875,8 @@
       if (!selected) return;
       if (selected.type === 'edge') {
         deleteEdge(selected.id);
+      } else if (selected.type === 'zone') {
+        deleteZone(selected.id);
       } else {
         deleteNode(selected.id);
       }
@@ -686,6 +938,7 @@
     }
 
     function recompute() {
+      updateNodeLocations();
       const indegree = new Map();
       nodes.forEach(n => {
         indegree.set(n.id, getEdgesTo(n.id).length);
@@ -745,8 +998,41 @@
     }
 
     function render() {
+      zonesLayer.innerHTML = '';
       edgesLayer.innerHTML = '';
       nodesLayer.innerHTML = '';
+
+      zones.forEach(zone => {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('class', `zone ${zone.type}`);
+        rect.setAttribute('x', zone.x);
+        rect.setAttribute('y', zone.y);
+        rect.setAttribute('width', zone.width);
+        rect.setAttribute('height', zone.height);
+        rect.addEventListener('mousedown', evt => startZoneDrag(zone, evt));
+        rect.addEventListener('click', evt => {
+          evt.stopPropagation();
+          setSelected({ type: 'zone', id: zone.id });
+        });
+        zonesLayer.appendChild(rect);
+
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('class', 'zone-label');
+        label.setAttribute('x', zone.x + 12);
+        label.setAttribute('y', zone.y + 20);
+        label.textContent = `${zone.name} · ${zoneLabels[zone.type]}`;
+        zonesLayer.appendChild(label);
+
+        if (selected && selected.type === 'zone' && selected.id === zone.id) {
+          const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          outline.setAttribute('class', 'selection');
+          outline.setAttribute('x', zone.x - 4);
+          outline.setAttribute('y', zone.y - 4);
+          outline.setAttribute('width', zone.width + 8);
+          outline.setAttribute('height', zone.height + 8);
+          zonesLayer.appendChild(outline);
+        }
+      });
 
       edges.forEach(edge => {
         const from = getNodeById(edge.from);
@@ -806,7 +1092,7 @@
         title.setAttribute('x', 0);
         title.setAttribute('y', -6);
         title.setAttribute('text-anchor', 'middle');
-        title.textContent = node.label;
+        title.textContent = `${node.code ? node.code + ' · ' : ''}${node.label}`;
         g.appendChild(title);
 
         const metaText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -868,6 +1154,7 @@
 
     function startDrag(node, evt) {
       draggingNode = node;
+      nodeDragStart = { x: node.x, y: node.y };
       const pt = canvasPoint(evt);
       dragOffset.x = node.x - pt.x;
       dragOffset.y = node.y - pt.y;
@@ -884,10 +1171,56 @@
     }
 
     function endDrag() {
+      if (draggingNode) {
+        const within = assignNodeLocation(draggingNode);
+        if (!within) {
+          alert('Nodes must stay inside a building, floor, and room. Move reverted.');
+          draggingNode.x = nodeDragStart.x;
+          draggingNode.y = nodeDragStart.y;
+          assignNodeLocation(draggingNode);
+        }
+      }
       draggingNode = null;
       document.removeEventListener('mousemove', onDrag);
       document.removeEventListener('mouseup', endDrag);
       recompute();
+    }
+
+    function startZoneDrag(zone, evt) {
+      draggingZone = zone;
+      zoneDragSnapshot = zones.map(z => ({ ...z }));
+      const pt = canvasPoint(evt);
+      zoneDragOffset.x = zone.x - pt.x;
+      zoneDragOffset.y = zone.y - pt.y;
+      document.addEventListener('mousemove', onZoneDrag);
+      document.addEventListener('mouseup', endZoneDrag);
+    }
+
+    function onZoneDrag(evt) {
+      if (!draggingZone) return;
+      const pt = canvasPoint(evt);
+      draggingZone.x = pt.x + zoneDragOffset.x;
+      draggingZone.y = pt.y + zoneDragOffset.y;
+      render();
+    }
+
+    function endZoneDrag() {
+      if (draggingZone) {
+        const valid = nodes.every(assignNodeLocation);
+        if (!valid) {
+          zones = zoneDragSnapshot || zones;
+          updateNodeLocations();
+          alert('Zones must keep all nodes within a building, floor, and room. Move reverted.');
+        } else {
+          updateNodeLocations();
+        }
+      }
+      draggingZone = null;
+      zoneDragSnapshot = null;
+      document.removeEventListener('mousemove', onZoneDrag);
+      document.removeEventListener('mouseup', endZoneDrag);
+      render();
+      renderInspector();
     }
 
     recalcBtn.addEventListener('click', () => {
@@ -899,10 +1232,14 @@
     svg.addEventListener('click', () => setSelected(null));
 
     // Initial demo scene
-    createNode('source', 200, 180);
-    createNode('source', 200, 320);
-    createNode('twoSplit', 480, 250);
-    createNode('destination', 780, 250);
+    createZone('building', 560, 300);
+    createZone('floor', 560, 300);
+    createZone('room', 560, 300);
+
+    createNode('source', 320, 200);
+    createNode('source', 320, 320);
+    createNode('twoSplit', 600, 260);
+    createNode('destination', 880, 260);
     edges.push({ id: generateId('e'), from: nodes[0].id, to: nodes[2].id });
     edges.push({ id: generateId('e'), from: nodes[1].id, to: nodes[2].id });
     edges.push({ id: generateId('e'), from: nodes[2].id, to: nodes[3].id });
