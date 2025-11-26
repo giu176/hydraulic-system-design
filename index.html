@@ -393,13 +393,13 @@
 
     const sourceCatalog = [
       { id: 'WC', label: 'WC', flow: 2.5, diameter: 'DN110', wc: true },
-      { id: 'Lavabo', label: 'Lavabo', flow: 0.5, diameter: 'DN40', wc: false },
-      { id: 'Bide', label: 'Bidè', flow: 0.5, diameter: 'DN40', wc: false },
-      { id: 'Doccia', label: 'Doccia', flow: 0.8, diameter: 'DN50', wc: false },
-      { id: 'Vasca', label: 'Vasca', flow: 0.8, diameter: 'DN50', wc: false },
-      { id: 'Lavastoviglie', label: 'Lavastoviglie', flow: 0.8, diameter: 'DN50', wc: false },
-      { id: 'Lavatrice', label: 'Lavatrice', flow: 0.8, diameter: 'DN50', wc: false },
-      { id: 'Lavello', label: 'Lavello', flow: 0.8, diameter: 'DN50', wc: false },
+      { id: 'Lavabo', label: 'Lavabo', flow: 0.5, diameter: 'DN50', wc: false },
+      { id: 'Bide', label: 'Bidè', flow: 0.5, diameter: 'DN50', wc: false },
+      { id: 'Doccia', label: 'Doccia', flow: 0.8, diameter: 'DN63', wc: false },
+      { id: 'Vasca', label: 'Vasca', flow: 0.8, diameter: 'DN63', wc: false },
+      { id: 'Lavastoviglie', label: 'Lavastoviglie', flow: 0.8, diameter: 'DN63', wc: false },
+      { id: 'Lavatrice', label: 'Lavatrice', flow: 0.8, diameter: 'DN63', wc: false },
+      { id: 'Lavello', label: 'Lavello', flow: 0.8, diameter: 'DN63', wc: false },
     ];
 
     function generateId(prefix) {
@@ -641,12 +641,12 @@
 
     function diameterFromFlow(flow) {
       const rate = flow;
-      // Assuming initial threshold is 1.5 l/s (the sequence aligns with provided brackets)
-      if (rate < 1.5) return 'DN50';
-      if (rate >= 1.5 && rate < 2.25) return 'DN63';
-      if (rate >= 2.25 && rate < 3) return 'DN70';
-      if (rate >= 3 && rate < 3.4) return 'DN75';
-      if (rate >= 3.4 && rate < 3.75) return 'DN80';
+      if (rate < 0.5) return 'DN40';
+      if (rate >= 0.5 && rate < 0.8) return 'DN50';
+      if (rate >= 0.8 && rate < 1) return 'DN63';
+      if (rate >= 1 && rate < 1.5) return 'DN75';
+      if (rate >= 1.5 && rate < 2) return 'DN80';
+      if (rate >= 2 && rate < 2.25) return 'DN90';
       return 'DN110';
     }
 
