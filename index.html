@@ -115,6 +115,47 @@
       overflow: hidden;
     }
 
+    .canvas-controls {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      padding: 8px 10px;
+      border-radius: 10px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+      z-index: 10;
+    }
+
+    .canvas-controls .action-btn.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--text);
+    }
+
+    .zoom-display {
+      min-width: 64px;
+      text-align: center;
+      font-weight: 700;
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: rgba(11, 18, 33, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+    }
+
+    .pan-enabled svg {
+      cursor: grab;
+    }
+
+    .panning svg {
+      cursor: grabbing !important;
+    }
+
     .panel-title {
       font-weight: 700;
       letter-spacing: 0.4px;
@@ -540,6 +581,13 @@
     </div>
 
     <div id="canvas">
+      <div class="canvas-controls">
+        <button class="action-btn" id="pan-mode-toggle">Pan / Select</button>
+        <button class="action-btn" id="reset-view">Reset view</button>
+        <button class="action-btn" id="zoom-out">-</button>
+        <div class="zoom-display" id="zoom-display">100%</div>
+        <button class="action-btn" id="zoom-in">+</button>
+      </div>
       <svg id="svg" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <marker id="arrow" markerWidth="10" markerHeight="6" refX="10" refY="3" orient="auto" markerUnits="strokeWidth">
@@ -549,11 +597,13 @@
             <path d="M0,0 L10,3 L0,6 z" fill="var(--accent)" />
           </marker>
         </defs>
-        <g id="zones"></g>
-        <g id="edges"></g>
-        <g id="nodes"></g>
-        <g id="overlay"></g>
-        <g id="zone-draft"></g>
+        <g id="viewport">
+          <g id="zones"></g>
+          <g id="edges"></g>
+          <g id="nodes"></g>
+          <g id="overlay"></g>
+          <g id="zone-draft"></g>
+        </g>
       </svg>
     </div>
 
@@ -597,7 +647,9 @@
   </div>
 
   <script>
+    const canvas = document.getElementById('canvas');
     const svg = document.getElementById('svg');
+    const viewport = document.getElementById('viewport');
     const zonesLayer = document.getElementById('zones');
     const zoneDraftLayer = document.getElementById('zone-draft');
     const overlayLayer = document.getElementById('overlay');
@@ -614,6 +666,11 @@
     const graphView = document.getElementById('graph-view');
     const summaryView = document.getElementById('summary-view');
     const viewButtons = document.querySelectorAll('.view-button');
+    const panModeBtn = document.getElementById('pan-mode-toggle');
+    const zoomInBtn = document.getElementById('zoom-in');
+    const zoomOutBtn = document.getElementById('zoom-out');
+    const zoomDisplay = document.getElementById('zoom-display');
+    const resetViewBtn = document.getElementById('reset-view');
     let activeView = 'design';
 
     function applyViewVisibility() {
@@ -645,7 +702,13 @@
       btn.addEventListener('click', () => setViewMode(btn.dataset.view));
     });
 
+    panModeBtn.addEventListener('click', () => setPanMode(!panMode));
+    zoomInBtn.addEventListener('click', () => setZoom(zoom * 1.1));
+    zoomOutBtn.addEventListener('click', () => setZoom(zoom / 1.1));
+    resetViewBtn.addEventListener('click', resetView);
+
     applyViewVisibility();
+    setPanMode(true);
 
     const zoneDefaults = { building: { width: 1000, height: 700 }, floor: { width: 820, height: 560 }, room: { width: 640, height: 420 } };
     const zoneLabels = { building: 'Building', floor: 'Floor', room: 'Room' };
@@ -666,6 +729,14 @@
     let selected = null;
     let creationType = null;
     let creationZoneType = null;
+    let pan = { x: 0, y: 0 };
+    let zoom = 1;
+    let panMode = true;
+    let isPanning = false;
+    let panStart = null;
+    let panPointerStart = null;
+    const minZoom = 0.25;
+    const maxZoom = 3;
     let draggingNode = null;
     let draggingZone = null;
     let zoneDraftStart = null;
@@ -729,6 +800,28 @@
       svg.classList.toggle('zone-creation', Boolean(creationZoneType));
     }
 
+    function updateGridAppearance() {
+      const size = 40 * zoom;
+      canvas.style.backgroundSize = `${size}px ${size}px`;
+      canvas.style.backgroundPosition = `${pan.x}px ${pan.y}px`;
+    }
+
+    function applyViewportTransform() {
+      viewport.setAttribute('transform', `translate(${pan.x} ${pan.y}) scale(${zoom})`);
+      updateGridAppearance();
+      zoomDisplay.textContent = `${Math.round(zoom * 100)}%`;
+      document.body.classList.toggle('pan-enabled', panMode);
+      document.body.classList.toggle('panning', isPanning);
+    }
+
+    function screenToWorld(point) {
+      const rect = svg.getBoundingClientRect();
+      return {
+        x: (point.x - rect.left - pan.x) / zoom,
+        y: (point.y - rect.top - pan.y) / zoom,
+      };
+    }
+
     function cancelZoneDraft() {
       zoneDraftStart = null;
       if (zoneDraftRect) {
@@ -740,6 +833,7 @@
     function setCreationType(type) {
       creationType = type;
       creationZoneType = null;
+      if (type) setPanMode(false);
       document.querySelectorAll('.node-button').forEach(btn => btn.classList.toggle('active', btn.dataset.type === type));
       document.querySelectorAll('[data-zone]').forEach(btn => btn.classList.remove('active'));
       cancelZoneDraft();
@@ -749,6 +843,7 @@
     function setZoneCreation(type) {
       creationZoneType = type;
       creationType = null;
+      if (type) setPanMode(false);
       cancelZoneDraft();
       document.querySelectorAll('.node-button').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('[data-zone]').forEach(btn => btn.classList.toggle('active', btn.dataset.zone === type));
@@ -763,9 +858,14 @@
       btn.addEventListener('click', () => setZoneCreation(btn.dataset.zone));
     });
 
+    function shouldStartPan(evt) {
+      const targetIsCanvas = evt.target === svg;
+      if (evt.button === 1) return true;
+      return panMode && evt.button === 0 && !creationType && !creationZoneType && targetIsCanvas;
+    }
+
     function canvasPoint(evt) {
-      const rect = svg.getBoundingClientRect();
-      return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+      return screenToWorld({ x: evt.clientX, y: evt.clientY });
     }
 
     svg.addEventListener('click', evt => {
@@ -784,9 +884,15 @@
     });
 
     svg.addEventListener('mousedown', evt => {
+      if (shouldStartPan(evt)) {
+        evt.preventDefault();
+        startPan(evt);
+        return;
+      }
+
       if (evt.button === 2 && (creationType || creationZoneType || zoneDraftStart)) {
         evt.preventDefault();
-        cancelCreationMode();
+        cancelCreationMode(true);
         render();
         return;
       }
@@ -795,6 +901,12 @@
       const pt = canvasPoint(evt);
       startZoneDraft(pt);
       evt.preventDefault();
+    });
+
+    svg.addEventListener('wheel', evt => {
+      evt.preventDefault();
+      const factor = evt.deltaY < 0 ? 1.1 : 0.9;
+      setZoom(zoom * factor, { x: evt.clientX, y: evt.clientY });
     });
 
     window.addEventListener('mousemove', evt => {
@@ -812,7 +924,7 @@
     svg.addEventListener('contextmenu', evt => {
       if (!creationType && !creationZoneType && !zoneDraftStart) return;
       evt.preventDefault();
-      cancelCreationMode();
+      cancelCreationMode(true);
       render();
     });
 
@@ -833,7 +945,6 @@
       assignNodeCode(node, true);
       nodes.push(node);
       assignNodeLocation(node);
-      setCreationType(null);
       return true;
     }
 
@@ -905,7 +1016,6 @@
         ...bounds,
       };
       zones.push(zone);
-      setZoneCreation(null);
       updateNodeLocations();
     }
 
@@ -956,10 +1066,105 @@
       cancelZoneDraft();
     }
 
-    function cancelCreationMode() {
+    function cancelCreationMode(restorePan = false) {
       setCreationType(null);
       setZoneCreation(null);
       cancelZoneDraft();
+      if (restorePan) setPanMode(true);
+    }
+
+    function setPanMode(enabled) {
+      panMode = enabled;
+      panModeBtn.classList.toggle('active', enabled);
+      if (enabled && (creationType || creationZoneType)) {
+        cancelCreationMode();
+      }
+      applyViewportTransform();
+    }
+
+    function startPan(evt) {
+      isPanning = true;
+      panStart = { ...pan };
+      panPointerStart = { x: evt.clientX, y: evt.clientY };
+      applyViewportTransform();
+      document.addEventListener('mousemove', onPanMove);
+      document.addEventListener('mouseup', endPan);
+    }
+
+    function onPanMove(evt) {
+      if (!isPanning) return;
+      pan.x = panStart.x + (evt.clientX - panPointerStart.x);
+      pan.y = panStart.y + (evt.clientY - panPointerStart.y);
+      applyViewportTransform();
+    }
+
+    function endPan() {
+      isPanning = false;
+      applyViewportTransform();
+      document.removeEventListener('mousemove', onPanMove);
+      document.removeEventListener('mouseup', endPan);
+    }
+
+    function setZoom(nextZoom, anchorClientPoint) {
+      const rect = svg.getBoundingClientRect();
+      const anchor = anchorClientPoint || { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      const worldBefore = screenToWorld(anchor);
+      zoom = Math.min(maxZoom, Math.max(minZoom, nextZoom));
+      const localAnchor = { x: anchor.x - rect.left, y: anchor.y - rect.top };
+      pan.x = localAnchor.x - worldBefore.x * zoom;
+      pan.y = localAnchor.y - worldBefore.y * zoom;
+      applyViewportTransform();
+      render();
+    }
+
+    function autoPanFromEdge(evt) {
+      const rect = svg.getBoundingClientRect();
+      const threshold = 60;
+      const step = 12;
+      let dx = 0;
+      let dy = 0;
+
+      if (evt.clientX > rect.right - threshold) dx -= step;
+      if (evt.clientX < rect.left + threshold) dx += step;
+      if (evt.clientY > rect.bottom - threshold) dy -= step;
+      if (evt.clientY < rect.top + threshold) dy += step;
+
+      if (dx !== 0 || dy !== 0) {
+        pan.x += dx;
+        pan.y += dy;
+        applyViewportTransform();
+      }
+    }
+
+    function resetView() {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const padding = 120;
+
+      const nodeBounds = nodes.map(node => {
+        const { width, height } = portPositions(node);
+        return { minX: node.x - width / 2, maxX: node.x + width / 2, minY: node.y - height / 2, maxY: node.y + height / 2 };
+      });
+
+      const zoneBounds = zones.map(zone => ({ minX: zone.x, maxX: zone.x + zone.width, minY: zone.y, maxY: zone.y + zone.height }));
+      const bounds = [...nodeBounds, ...zoneBounds];
+
+      const minX = bounds.length ? Math.min(...bounds.map(b => b.minX)) : -400;
+      const maxX = bounds.length ? Math.max(...bounds.map(b => b.maxX)) : 400;
+      const minY = bounds.length ? Math.min(...bounds.map(b => b.minY)) : -300;
+      const maxY = bounds.length ? Math.max(...bounds.map(b => b.maxY)) : 300;
+
+      const width = maxX - minX || 1;
+      const height = maxY - minY || 1;
+      const targetWidth = width + padding * 2;
+      const targetHeight = height + padding * 2;
+      const fittedZoom = Math.min(maxZoom, Math.max(minZoom, Math.min(rect.width / targetWidth, rect.height / targetHeight)));
+
+      zoom = fittedZoom;
+      pan.x = (rect.width - targetWidth * zoom) / 2 - (minX - padding) * zoom;
+      pan.y = (rect.height - targetHeight * zoom) / 2 - (minY - padding) * zoom;
+      applyViewportTransform();
+      render();
     }
 
     function portPositions(node) {
@@ -1185,7 +1390,7 @@
 
     document.addEventListener('keydown', evt => {
       if (evt.key === 'Escape') {
-        cancelCreationMode();
+        cancelCreationMode(true);
         render();
         return;
       }
@@ -1479,6 +1684,7 @@
 
     function render() {
       applyViewVisibility();
+      applyViewportTransform();
       zonesLayer.innerHTML = '';
       edgesLayer.innerHTML = '';
       nodesLayer.innerHTML = '';
@@ -1670,6 +1876,7 @@
     }
 
     function startDrag(node, evt) {
+      if (evt.button !== 0) return;
       draggingNode = node;
       nodeDragStart = { x: node.x, y: node.y };
       const pt = canvasPoint(evt);
@@ -1684,6 +1891,7 @@
       const pt = canvasPoint(evt);
       draggingNode.x = pt.x + dragOffset.x;
       draggingNode.y = pt.y + dragOffset.y;
+      autoPanFromEdge(evt);
       render();
     }
 
@@ -1696,6 +1904,7 @@
     }
 
     function startZoneDrag(zone, evt) {
+      if (evt.button !== 0) return;
       if (resizingZone || creationZoneType || creationType) return;
       draggingZone = zone;
       zoneDragSnapshot = zones.map(z => ({ ...z }));
@@ -1711,6 +1920,7 @@
       const pt = canvasPoint(evt);
       draggingZone.x = pt.x + zoneDragOffset.x;
       draggingZone.y = pt.y + zoneDragOffset.y;
+      autoPanFromEdge(evt);
       render();
     }
 
@@ -1725,6 +1935,7 @@
     }
 
     function startZoneResize(zone, handle, evt) {
+      if (evt.button !== 0) return;
       evt.stopPropagation();
       evt.preventDefault();
       setSelected({ type: 'zone', id: zone.id });
@@ -1803,6 +2014,7 @@
 
     recompute();
     render();
+    resetView();
   </script>
 </body>
 </html>
