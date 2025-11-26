@@ -32,10 +32,11 @@
       overflow: hidden;
       display: grid;
       grid-template-columns: 320px 1fr 320px;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto 1fr 280px;
       grid-template-areas:
         "header header header"
-        "sidebar canvas inspector";
+        "sidebar canvas inspector"
+        "summary summary summary";
       gap: 12px;
       padding: 12px;
     }
@@ -80,7 +81,8 @@
     }
 
     .sidebar,
-    .inspector {
+    .inspector,
+    .summary-panel {
       background: var(--panel);
       border: 1px solid rgba(148, 163, 184, 0.25);
       border-radius: 12px;
@@ -97,6 +99,16 @@
 
     .inspector {
       grid-area: inspector;
+    }
+
+    .summary-panel {
+      grid-area: summary;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 220px;
+      max-height: 100%;
+      overflow: hidden;
     }
 
     #canvas {
@@ -327,6 +339,48 @@
       ry: 2;
       pointer-events: all;
     }
+
+    .summary-table-wrapper {
+      flex: 1;
+      overflow: auto;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 10px;
+      background: #0b1221;
+    }
+
+    table.summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .summary-table th,
+    .summary-table td {
+      padding: 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .summary-table th {
+      position: sticky;
+      top: 0;
+      background: #111827;
+      z-index: 1;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .summary-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .summary-empty {
+      padding: 12px;
+      text-align: center;
+      color: var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -413,6 +467,29 @@
     <div id="inspector-content" class="muted">Select a node or pipe to view details.</div>
   </div>
 
+  <div class="summary-panel">
+    <div class="panel-title">Network summary</div>
+    <div class="muted">Aggregated view of every pipe. Values refresh automatically as you edit the graph.</div>
+    <div class="summary-table-wrapper">
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>Building</th>
+            <th>Floor</th>
+            <th>Room</th>
+            <th>Name</th>
+            <th>&#8721;DU</th>
+            <th>Q (l/s)</th>
+            <th>Diameter</th>
+          </tr>
+        </thead>
+        <tbody id="summary-body">
+          <tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <script>
     const svg = document.getElementById('svg');
     const zonesLayer = document.getElementById('zones');
@@ -423,6 +500,7 @@
     const inspector = document.getElementById('inspector-content');
     const kInput = document.getElementById('kInput');
     const recalcBtn = document.getElementById('recalc');
+    const summaryBody = document.getElementById('summary-body');
 
     const zoneDefaults = { building: { width: 1000, height: 700 }, floor: { width: 820, height: 560 }, room: { width: 640, height: 420 } };
     const zoneLabels = { building: 'Building', floor: 'Floor', room: 'Room' };
@@ -1104,6 +1182,43 @@
       return Math.max(2, numeric / 25);
     }
 
+    function renderSummary() {
+      if (!summaryBody) return;
+      summaryBody.innerHTML = '';
+
+      if (!edges.length) {
+        summaryBody.innerHTML = '<tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>';
+        return;
+      }
+
+      edges.forEach(edge => {
+        const from = getNodeById(edge.from);
+        const to = getNodeById(edge.to);
+        if (!from || !to) return;
+
+        const { building, floor, room } = nodeLocation(from);
+        const displayName = `${from.code || from.label}-${to.code || to.label}`;
+        const upstream = from.upstreamSourceFlow ?? 0;
+        const flowRate = edge.flowRate ?? 0;
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${building || '—'}</td>
+          <td>${floor || '—'}</td>
+          <td>${room || '—'}</td>
+          <td>${displayName}</td>
+          <td>${upstream.toFixed(2)}</td>
+          <td>${flowRate.toFixed(2)}</td>
+          <td>${edge.diameter || '—'}</td>
+        `;
+        summaryBody.appendChild(row);
+      });
+
+      if (!summaryBody.children.length) {
+        summaryBody.innerHTML = '<tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>';
+      }
+    }
+
     function render() {
       zonesLayer.innerHTML = '';
       edgesLayer.innerHTML = '';
@@ -1289,6 +1404,8 @@
           g.appendChild(outline);
         }
       });
+
+      renderSummary();
     }
 
     function startDrag(node, evt) {
