@@ -333,6 +333,14 @@
       pointer-events: all;
     }
 
+    .summary-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
     .summary-table-wrapper {
       flex: 1;
       overflow: auto;
@@ -515,6 +523,14 @@
         </div>
       </button>
       <div>
+        <div class="panel-title">Import &amp; Export</div>
+        <div class="actions">
+          <button class="action-btn" id="import-graph">Import graph</button>
+          <button class="action-btn" id="export-graph">Export graph</button>
+          <input type="file" id="graph-file-input" accept="application/json" hidden />
+        </div>
+      </div>
+      <div>
         <div class="panel-title">Shortcuts</div>
         <div class="actions">
           <button class="action-btn" id="delete-selection">Delete selected</button>
@@ -549,8 +565,15 @@
 
   <div id="summary-view" class="view summary-view" hidden>
     <div class="summary-panel">
-      <div class="panel-title">Network summary</div>
-      <div class="muted">Aggregated view of every pipe. Values refresh automatically as you edit the graph.</div>
+      <div class="summary-header">
+        <div>
+          <div class="panel-title">Network summary</div>
+          <div class="muted">Aggregated view of every pipe. Values refresh automatically as you edit the graph.</div>
+        </div>
+        <div class="actions">
+          <button class="action-btn" id="export-summary">Export CSV</button>
+        </div>
+      </div>
       <div class="summary-table-wrapper">
         <table class="summary-table">
           <thead>
@@ -562,10 +585,11 @@
               <th>&#8721;DU</th>
               <th>Q (l/s)</th>
               <th>Diameter</th>
+              <th>WC</th>
             </tr>
           </thead>
           <tbody id="summary-body">
-            <tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>
+            <tr><td colspan="8" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>
           </tbody>
         </table>
       </div>
@@ -583,6 +607,10 @@
     const kInput = document.getElementById('kInput');
     const recalcBtn = document.getElementById('recalc');
     const summaryBody = document.getElementById('summary-body');
+    const importGraphBtn = document.getElementById('import-graph');
+    const exportGraphBtn = document.getElementById('export-graph');
+    const graphFileInput = document.getElementById('graph-file-input');
+    const exportSummaryBtn = document.getElementById('export-summary');
     const graphView = document.getElementById('graph-view');
     const summaryView = document.getElementById('summary-view');
     const viewButtons = document.querySelectorAll('.view-button');
@@ -1299,15 +1327,8 @@
       return Math.max(2, numeric / 25);
     }
 
-    function renderSummary() {
-      if (!summaryBody) return;
-      summaryBody.innerHTML = '';
-
-      if (!edges.length) {
-        summaryBody.innerHTML = '<tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>';
-        return;
-      }
-
+    function collectSummaryRows() {
+      const rows = [];
       edges.forEach(edge => {
         const from = getNodeById(edge.from);
         const to = getNodeById(edge.to);
@@ -1317,23 +1338,143 @@
         const displayName = `${from.code || from.label}-${to.code || to.label}`;
         const upstream = from.upstreamSourceFlow ?? 0;
         const flowRate = edge.flowRate ?? 0;
+        const diameter = edge.diameter || 'DN?';
+        const wcFlag = edge.isConnectedToWC ? 'YES' : 'NO';
 
+        rows.push({ building, floor, room, displayName, upstream, flowRate, diameter, wcFlag });
+      });
+      return rows;
+    }
+
+    function renderSummary() {
+      if (!summaryBody) return;
+      summaryBody.innerHTML = '';
+
+      if (!edges.length) {
+        summaryBody.innerHTML = '<tr><td colspan="8" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>';
+        return;
+      }
+
+      collectSummaryRows().forEach(rowData => {
         const row = document.createElement('tr');
         row.innerHTML = `
-          <td>${building || '—'}</td>
-          <td>${floor || '—'}</td>
-          <td>${room || '—'}</td>
-          <td>${displayName}</td>
-          <td>${upstream.toFixed(2)}</td>
-          <td>${flowRate.toFixed(2)}</td>
-          <td>${edge.diameter || '—'}</td>
+          <td>${rowData.building || '—'}</td>
+          <td>${rowData.floor || '—'}</td>
+          <td>${rowData.room || '—'}</td>
+          <td>${rowData.displayName}</td>
+          <td>${rowData.upstream.toFixed(2)}</td>
+          <td>${rowData.flowRate.toFixed(2)}</td>
+          <td>${rowData.diameter}</td>
+          <td>${rowData.wcFlag}</td>
         `;
         summaryBody.appendChild(row);
       });
 
       if (!summaryBody.children.length) {
-        summaryBody.innerHTML = '<tr><td colspan="7" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>';
+        summaryBody.innerHTML = '<tr><td colspan="8" class="summary-empty">No pipes yet. Create connections to see the summary.</td></tr>';
       }
+    }
+
+    function downloadFile(filename, content, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function exportGraph() {
+      const payload = {
+        nodes,
+        edges,
+        zones,
+        k: kInput.value,
+        prefixCounters,
+        zoneCounters,
+      };
+      downloadFile('network.json', JSON.stringify(payload, null, 2), 'application/json');
+    }
+
+    function rebuildCounters() {
+      Object.keys(prefixCounters).forEach(key => delete prefixCounters[key]);
+      nodes.forEach(node => {
+        if (!node.code) return;
+        const match = node.code.match(/^([A-Za-z]+)(\d+)$/);
+        if (!match) return;
+        const prefix = match[1];
+        const num = parseInt(match[2], 10);
+        prefixCounters[prefix] = Math.max(prefixCounters[prefix] || 0, num);
+      });
+
+      Object.keys(zoneCounters).forEach(key => { zoneCounters[key] = 0; });
+      zones.forEach(zone => {
+        const label = zoneLabels[zone.type];
+        if (!label) return;
+        const matcher = new RegExp(`^${label} (\\d+)$`);
+        const match = (zone.name || '').match(matcher);
+        if (!match) return;
+        const num = parseInt(match[1], 10);
+        zoneCounters[zone.type] = Math.max(zoneCounters[zone.type] || 0, num);
+      });
+    }
+
+    function importGraph(fileContent) {
+      try {
+        const data = JSON.parse(fileContent);
+        nodes = Array.isArray(data.nodes) ? data.nodes : [];
+        edges = Array.isArray(data.edges) ? data.edges : [];
+        zones = Array.isArray(data.zones) ? data.zones : [];
+        kInput.value = data.k || kInput.value;
+
+        if (data.prefixCounters) {
+          Object.keys(prefixCounters).forEach(key => delete prefixCounters[key]);
+          Object.assign(prefixCounters, data.prefixCounters);
+        }
+        if (data.zoneCounters) {
+          Object.keys(zoneCounters).forEach(key => { zoneCounters[key] = data.zoneCounters[key] || 0; });
+        }
+
+        rebuildCounters();
+        setSelected(null);
+        recompute();
+        render();
+        renderInspector();
+        if (activeView === 'summary') renderSummary();
+      } catch (err) {
+        alert('Could not import graph: ' + err.message);
+      }
+    }
+
+    function csvEscape(value) {
+      const str = String(value ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    }
+
+    function exportSummaryCsv() {
+      const rows = collectSummaryRows();
+      const headers = ['Building', 'Floor', 'Room', 'Name', '∑DU', 'Q (l/s)', 'Diameter', 'WC'];
+      const lines = [headers.join(',')];
+      rows.forEach(row => {
+        const line = [
+          csvEscape(row.building || '—'),
+          csvEscape(row.floor || '—'),
+          csvEscape(row.room || '—'),
+          csvEscape(row.displayName),
+          csvEscape(row.upstream.toFixed(2)),
+          csvEscape(row.flowRate.toFixed(2)),
+          csvEscape(row.diameter),
+          csvEscape(row.wcFlag),
+        ].join(',');
+        lines.push(line);
+      });
+      downloadFile('summary.csv', lines.join('\n'), 'text/csv');
     }
 
     function render() {
@@ -1645,20 +1786,20 @@
       renderInspector();
     });
 
+    exportGraphBtn.addEventListener('click', exportGraph);
+    exportSummaryBtn.addEventListener('click', exportSummaryCsv);
+
+    importGraphBtn.addEventListener('click', () => graphFileInput.click());
+    graphFileInput.addEventListener('change', evt => {
+      const file = evt.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => importGraph(e.target.result);
+      reader.readAsText(file);
+      graphFileInput.value = '';
+    });
+
     svg.addEventListener('click', () => setSelected(null));
-
-    // Initial demo scene
-    createZone('building', centeredZoneBounds('building', 560, 300));
-    createZone('floor', centeredZoneBounds('floor', 560, 300));
-    createZone('room', centeredZoneBounds('room', 560, 300));
-
-    createNode('source', 320, 200);
-    createNode('source', 320, 320);
-    createNode('twoSplit', 600, 260);
-    createNode('destination', 880, 260);
-    edges.push({ id: generateId('e'), from: nodes[0].id, to: nodes[2].id });
-    edges.push({ id: generateId('e'), from: nodes[1].id, to: nodes[2].id });
-    edges.push({ id: generateId('e'), from: nodes[2].id, to: nodes[3].id });
 
     recompute();
     render();
