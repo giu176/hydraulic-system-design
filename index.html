@@ -313,7 +313,11 @@
     .zone.building { stroke: #f59e0b; fill: #f59e0b; }
     .zone.floor { stroke: #10b981; fill: #10b981; }
     .zone.room { stroke: #6366f1; fill: #6366f1; }
-    .zone-label { fill: var(--text); font-weight: 700; pointer-events: none; }
+    .zone-label {
+      fill: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+    }
 
     .zone-handle {
       fill: var(--bg);
@@ -399,6 +403,7 @@
       <g id="zones"></g>
       <g id="edges"></g>
       <g id="nodes"></g>
+      <g id="overlay"></g>
       <g id="zone-draft"></g>
     </svg>
   </div>
@@ -412,6 +417,7 @@
     const svg = document.getElementById('svg');
     const zonesLayer = document.getElementById('zones');
     const zoneDraftLayer = document.getElementById('zone-draft');
+    const overlayLayer = document.getElementById('overlay');
     const nodesLayer = document.getElementById('nodes');
     const edgesLayer = document.getElementById('edges');
     const inspector = document.getElementById('inspector-content');
@@ -1102,6 +1108,7 @@
       zonesLayer.innerHTML = '';
       edgesLayer.innerHTML = '';
       nodesLayer.innerHTML = '';
+      overlayLayer.innerHTML = '';
 
       zones.forEach(zone => {
         const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -1122,6 +1129,10 @@
         label.setAttribute('x', zone.x + 12);
         label.setAttribute('y', zone.y + 20);
         label.textContent = `${zone.name} · ${zoneLabels[zone.type]}`;
+        label.addEventListener('click', evt => {
+          evt.stopPropagation();
+          setSelected({ type: 'zone', id: zone.id });
+        });
         zonesLayer.appendChild(label);
 
         if (selected && selected.type === 'zone' && selected.id === zone.id) {
@@ -1131,7 +1142,7 @@
           outline.setAttribute('y', zone.y - 4);
           outline.setAttribute('width', zone.width + 8);
           outline.setAttribute('height', zone.height + 8);
-          zonesLayer.appendChild(outline);
+          overlayLayer.appendChild(outline);
 
           const handleSize = 12;
           const half = handleSize / 2;
@@ -1155,7 +1166,7 @@
             h.setAttribute('height', handleSize);
             h.style.cursor = handle.cursor;
             h.addEventListener('mousedown', evt => startZoneResize(zone, handle.name, evt));
-            zonesLayer.appendChild(h);
+            overlayLayer.appendChild(h);
           });
         }
       });
