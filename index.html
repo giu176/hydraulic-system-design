@@ -525,6 +525,8 @@
         const edge = edges.find(e => e.id === selected.id);
         const from = getNodeById(edge.from);
         const to = getNodeById(edge.to);
+        const flowExplanation = describeEdgeFlow(edge, from);
+        const diameterExplanation = describeEdgeDiameter(edge, from);
         inspector.innerHTML = `
           <div class="property-group">
             <div class="panel-title">Pipe</div>
@@ -534,6 +536,8 @@
             <div class="stat"><span>Flow rate (Q)</span><strong>${(edge.flowRate ?? 0).toFixed(2)} l/s</strong></div>
             <div class="stat"><span>Diameter</span><strong>${edge.diameter || '—'}</strong></div>
             <div class="stat"><span>Connected to WC</span><strong>${edge.isConnectedToWC ? 'Yes' : 'No'}</strong></div>
+            <div class="muted">${flowExplanation}</div>
+            <div class="muted">${diameterExplanation}</div>
           </div>
           <button class="action-btn" onclick="deleteEdge('${edge.id}')">Delete pipe</button>
         `;
@@ -606,6 +610,17 @@
       render();
     }
 
+    document.addEventListener('keydown', evt => {
+      if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT' || evt.target.tagName === 'TEXTAREA') return;
+      if ((evt.key === 'Delete' || evt.key === 'Backspace') && selected) {
+        if (selected.type === 'edge') {
+          deleteEdge(selected.id);
+        } else {
+          deleteNode(selected.id);
+        }
+      }
+    });
+
     document.getElementById('delete-selection').addEventListener('click', () => {
       if (!selected) return;
       if (selected.type === 'edge') {
@@ -635,20 +650,54 @@
       return 'DN110';
     }
 
+    function projectCoefficient() {
+      const parsed = parseFloat(kInput.value);
+      if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+      return Math.max(1, parsed);
+    }
+
+    function describeEdgeFlow(edge, fromNode) {
+      if (!fromNode) return 'Upstream node missing; flow defaults to 0.00 l/s.';
+
+      if (fromNode.type === 'source') {
+        const meta = sourceCatalog.find(s => s.id === fromNode.data.sourceType) || sourceCatalog[0];
+        return `Flow comes directly from source "${meta.label}" providing ${meta.flow.toFixed(2)} l/s.`;
+      }
+
+      const incoming = getEdgesTo(fromNode.id);
+      const parts = incoming.map(e => (e.flowRate || 0).toFixed(2));
+      const sum = parts.reduce((total, val) => total + parseFloat(val), 0);
+      if (!incoming.length) return `No upstream pipes connected to ${fromNode.label}; flow remains 0.00 l/s.`;
+
+      const k = projectCoefficient();
+      const design = fromNode.type === 'destination' && fromNode.data.designFlow != null ? fromNode.data.designFlow : null;
+      const scaled = sum * k;
+      const finalFlow = design != null ? Math.max(scaled, design) : scaled;
+      const breakdown = parts.join(' + ');
+      const designNote = design != null ? ` and compared against destination design flow ${design.toFixed(2)} l/s` : '';
+      return `Flow equals sum of incoming pipes (${breakdown}) × project coefficient k=${k.toFixed(2)}${designNote}, resulting in ${(finalFlow || 0).toFixed(2)} l/s.`;
+    }
+
+    function describeEdgeDiameter(edge, fromNode) {
+      if (edge.isConnectedToWC) return 'WC is present upstream, forcing pipe diameter to DN110.';
+      if (!fromNode) return 'Diameter derived from default rules because upstream node is missing.';
+      return `Diameter chosen from flow ${(edge.flowRate || 0).toFixed(2)} l/s using sizing table → ${edge.diameter || 'DN?'}.`;
+    }
+
     function recompute() {
       const indegree = new Map();
       nodes.forEach(n => {
         indegree.set(n.id, getEdgesTo(n.id).length);
-        n.computedFlow = null;
+        n.computedFlow = 0;
         n.hasWC = false;
       });
 
       const q = [];
       nodes.forEach(n => {
-        if (n.type === 'source') q.push(n);
+        if (n.type === 'source' || indegree.get(n.id) === 0) q.push(n);
       });
 
-      const k = parseFloat(kInput.value) || 0;
+      const k = projectCoefficient();
 
       while (q.length) {
         const node = q.shift();
@@ -662,7 +711,9 @@
           node.hasWC = meta.wc;
         } else if (node.type === 'twoSplit' || node.type === 'threeSplit' || node.type === 'destination') {
           const sum = incomingFlows.reduce((a, b) => a + b, 0);
-          node.computedFlow = sum > 0 ? k * Math.sqrt(sum) : 0;
+          const scaled = sum * k;
+          const designFlow = node.type === 'destination' && node.data.designFlow != null ? node.data.designFlow : null;
+          node.computedFlow = designFlow != null ? Math.max(scaled, designFlow) : scaled;
           node.hasWC = incomingWC;
         }
 
@@ -837,6 +888,7 @@
     recalcBtn.addEventListener('click', () => {
       recompute();
       render();
+      renderInspector();
     });
 
     svg.addEventListener('click', () => setSelected(null));
