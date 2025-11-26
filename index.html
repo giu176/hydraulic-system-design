@@ -588,23 +588,36 @@
     const viewButtons = document.querySelectorAll('.view-button');
     let activeView = 'design';
 
-    function setViewMode(mode) {
-      activeView = mode;
-      const designActive = mode === 'design';
-      document.body.classList.remove('view-mode-design', 'view-mode-summary');
-      document.body.classList.add(`view-mode-${mode}`);
+    function applyViewVisibility() {
+      const designActive = activeView === 'design';
+      document.body.classList.toggle('view-mode-design', designActive);
+      document.body.classList.toggle('view-mode-summary', !designActive);
       graphView.hidden = !designActive;
       summaryView.hidden = designActive;
       graphView.classList.toggle('is-active', designActive);
       summaryView.classList.toggle('is-active', !designActive);
-      viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === mode));
+      viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === activeView));
+    }
+
+    function setViewMode(mode) {
+      if (!mode || mode === activeView) {
+        applyViewVisibility();
+        return;
+      }
+
+      activeView = mode;
+      applyViewVisibility();
+
+      if (activeView === 'summary') {
+        renderSummary();
+      }
     }
 
     viewButtons.forEach(btn => {
       btn.addEventListener('click', () => setViewMode(btn.dataset.view));
     });
 
-    setViewMode(activeView);
+    applyViewVisibility();
 
     const zoneDefaults = { building: { width: 1000, height: 700 }, floor: { width: 820, height: 560 }, room: { width: 640, height: 420 } };
     const zoneLabels = { building: 'Building', floor: 'Floor', room: 'Room' };
@@ -1324,6 +1337,7 @@
     }
 
     function render() {
+      applyViewVisibility();
       zonesLayer.innerHTML = '';
       edgesLayer.innerHTML = '';
       nodesLayer.innerHTML = '';
@@ -1509,7 +1523,9 @@
         }
       });
 
-      renderSummary();
+      if (activeView === 'summary') {
+        renderSummary();
+      }
     }
 
     function startDrag(node, evt) {
