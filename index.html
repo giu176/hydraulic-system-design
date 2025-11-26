@@ -671,11 +671,11 @@
 
       const k = projectCoefficient();
       const design = fromNode.type === 'destination' && fromNode.data.designFlow != null ? fromNode.data.designFlow : null;
-      const scaled = sum * k;
+      const scaled = Math.sqrt(sum) * k;
       const finalFlow = design != null ? Math.max(scaled, design) : scaled;
       const breakdown = parts.join(' + ');
       const designNote = design != null ? ` and compared against destination design flow ${design.toFixed(2)} l/s` : '';
-      return `Flow equals sum of incoming pipes (${breakdown}) × project coefficient k=${k.toFixed(2)}${designNote}, resulting in ${(finalFlow || 0).toFixed(2)} l/s.`;
+      return `Flow equals √(sum of incoming pipes ${breakdown}) × project coefficient k=${k.toFixed(2)}${designNote}, resulting in ${(finalFlow || 0).toFixed(2)} l/s.`;
     }
 
     function describeEdgeDiameter(edge, fromNode) {
@@ -711,7 +711,7 @@
           node.hasWC = meta.wc;
         } else if (node.type === 'twoSplit' || node.type === 'threeSplit' || node.type === 'destination') {
           const sum = incomingFlows.reduce((a, b) => a + b, 0);
-          const scaled = sum * k;
+          const scaled = Math.sqrt(sum) * k;
           const designFlow = node.type === 'destination' && node.data.designFlow != null ? node.data.designFlow : null;
           node.computedFlow = designFlow != null ? Math.max(scaled, designFlow) : scaled;
           node.hasWC = incomingWC;
