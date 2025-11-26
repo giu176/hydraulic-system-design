@@ -225,6 +225,10 @@
       cursor: default;
     }
 
+    svg.creating-zone {
+      cursor: crosshair;
+    }
+
     .node {
       filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
       transition: transform 0.15s ease;
@@ -427,6 +431,8 @@
     let zoneDragOffset = { x: 0, y: 0 };
     let nodeDragStart = null;
     let zoneDragSnapshot = null;
+    let zoneCreationStart = null;
+    let zoneCreationPreview = null;
     let pendingConnection = null;
     const prefixCounters = {};
     const zoneCounters = { building: 0, floor: 0, room: 0 };
@@ -484,6 +490,11 @@
     function setZoneCreation(type) {
       creationZoneType = type;
       creationType = null;
+      if (!type) {
+        zoneCreationStart = null;
+        zoneCreationPreview = null;
+      }
+      svg.classList.toggle('creating-zone', Boolean(type));
       document.querySelectorAll('.node-button').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('[data-zone]').forEach(btn => btn.classList.toggle('active', btn.dataset.zone === type));
     }
@@ -514,13 +525,16 @@
         }
         return;
       }
-      if (onCanvas && creationZoneType) {
-        const pt = canvasPoint(evt);
-        createZone(creationZoneType, pt.x, pt.y);
-        render();
-        return;
-      }
     });
+
+    function zoneCreationBounds(start, end) {
+      return {
+        x: Math.min(start.x, end.x),
+        y: Math.min(start.y, end.y),
+        width: Math.abs(end.x - start.x),
+        height: Math.abs(end.y - start.y),
+      };
+    }
 
     function createNode(type, x, y) {
       const node = {
@@ -603,14 +617,17 @@
       return true;
     }
 
-    function createZone(type, x, y) {
-      const { width, height } = zoneDefaults[type];
+    function createZone(type, x, y, dimensions) {
+      const width = dimensions?.width ?? zoneDefaults[type].width;
+      const height = dimensions?.height ?? zoneDefaults[type].height;
+      const zoneX = dimensions?.x ?? x - width / 2;
+      const zoneY = dimensions?.y ?? y - height / 2;
       const zone = {
         id: generateId('z'),
         type,
         name: nextZoneName(type),
-        x: x - width / 2,
-        y: y - height / 2,
+        x: zoneX,
+        y: zoneY,
         width,
         height,
       };
@@ -1017,6 +1034,16 @@
         }
       });
 
+      if (zoneCreationPreview && creationZoneType) {
+        const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        outline.setAttribute('class', 'selection');
+        outline.setAttribute('x', zoneCreationPreview.x);
+        outline.setAttribute('y', zoneCreationPreview.y);
+        outline.setAttribute('width', zoneCreationPreview.width);
+        outline.setAttribute('height', zoneCreationPreview.height);
+        zonesLayer.appendChild(outline);
+      }
+
       edges.forEach(edge => {
         const from = getNodeById(edge.from);
         const to = getNodeById(edge.to);
@@ -1136,6 +1163,7 @@
     }
 
     function startDrag(node, evt) {
+      if (creationZoneType) return;
       draggingNode = node;
       nodeDragStart = { x: node.x, y: node.y };
       const pt = canvasPoint(evt);
@@ -1162,6 +1190,7 @@
     }
 
     function startZoneDrag(zone, evt) {
+      if (creationZoneType) return;
       draggingZone = zone;
       zoneDragSnapshot = zones.map(z => ({ ...z }));
       const pt = canvasPoint(evt);
@@ -1189,13 +1218,71 @@
       renderInspector();
     }
 
+    function startZoneCreation(evt) {
+      if (!creationZoneType || evt.button !== 0) return;
+      zoneCreationStart = canvasPoint(evt);
+      zoneCreationPreview = { x: zoneCreationStart.x, y: zoneCreationStart.y, width: 0, height: 0 };
+      document.addEventListener('mousemove', onZoneCreationDrag);
+      document.addEventListener('mouseup', endZoneCreationDrag);
+      evt.preventDefault();
+    }
+
+    function onZoneCreationDrag(evt) {
+      if (!zoneCreationStart) return;
+      const pt = canvasPoint(evt);
+      zoneCreationPreview = zoneCreationBounds(zoneCreationStart, pt);
+      render();
+    }
+
+    function endZoneCreationDrag(evt) {
+      if (!zoneCreationStart) return;
+      const pt = canvasPoint(evt);
+      const bounds = zoneCreationBounds(zoneCreationStart, pt);
+      zoneCreationStart = null;
+      document.removeEventListener('mousemove', onZoneCreationDrag);
+      document.removeEventListener('mouseup', endZoneCreationDrag);
+
+      const minimumSize = 10;
+      if (bounds.width >= minimumSize && bounds.height >= minimumSize) {
+        createZone(creationZoneType, bounds.x, bounds.y, bounds);
+        render();
+      } else {
+        cancelZoneCreation();
+      }
+      zoneCreationPreview = null;
+    }
+
+    function cancelZoneCreation() {
+      zoneCreationStart = null;
+      zoneCreationPreview = null;
+      document.removeEventListener('mousemove', onZoneCreationDrag);
+      document.removeEventListener('mouseup', endZoneCreationDrag);
+      setZoneCreation(null);
+      render();
+    }
+
     recalcBtn.addEventListener('click', () => {
       recompute();
       render();
       renderInspector();
     });
 
+    svg.addEventListener('mousedown', startZoneCreation);
+
+    svg.addEventListener('contextmenu', evt => {
+      if (creationZoneType) {
+        evt.preventDefault();
+        cancelZoneCreation();
+      }
+    });
+
     svg.addEventListener('click', () => setSelected(null));
+
+    document.addEventListener('keydown', evt => {
+      if (evt.key === 'Escape' && creationZoneType) {
+        cancelZoneCreation();
+      }
+    });
 
     // Initial demo scene
     createZone('building', 560, 300);
