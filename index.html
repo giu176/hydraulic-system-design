@@ -309,6 +309,15 @@
     .zone.floor { stroke: #10b981; fill: #10b981; }
     .zone.room { stroke: #6366f1; fill: #6366f1; }
     .zone-label { fill: var(--text); font-weight: 700; pointer-events: none; }
+
+    .zone-handle {
+      fill: var(--bg);
+      stroke: var(--accent);
+      stroke-width: 2;
+      rx: 2;
+      ry: 2;
+      pointer-events: all;
+    }
   </style>
 </head>
 <body>
@@ -423,13 +432,17 @@
     let creationZoneType = null;
     let draggingNode = null;
     let draggingZone = null;
+    let resizingZone = null;
+    let resizeHandle = null;
     let dragOffset = { x: 0, y: 0 };
     let zoneDragOffset = { x: 0, y: 0 };
     let nodeDragStart = null;
+    let resizeStart = null;
     let zoneDragSnapshot = null;
     let pendingConnection = null;
     const prefixCounters = {};
     const zoneCounters = { building: 0, floor: 0, room: 0 };
+    const minZoneSize = { width: 140, height: 120 };
 
     const sourceCatalog = [
       { id: 'WC', label: 'WC', flow: 2.5, diameter: 'DN110', wc: true },
@@ -1014,6 +1027,31 @@
           outline.setAttribute('width', zone.width + 8);
           outline.setAttribute('height', zone.height + 8);
           zonesLayer.appendChild(outline);
+
+          const handleSize = 12;
+          const half = handleSize / 2;
+          const handleData = [
+            { name: 'nw', x: zone.x - half, y: zone.y - half, cursor: 'nwse-resize' },
+            { name: 'n', x: zone.x + zone.width / 2 - half, y: zone.y - half, cursor: 'ns-resize' },
+            { name: 'ne', x: zone.x + zone.width - half, y: zone.y - half, cursor: 'nesw-resize' },
+            { name: 'e', x: zone.x + zone.width - half, y: zone.y + zone.height / 2 - half, cursor: 'ew-resize' },
+            { name: 'se', x: zone.x + zone.width - half, y: zone.y + zone.height - half, cursor: 'nwse-resize' },
+            { name: 's', x: zone.x + zone.width / 2 - half, y: zone.y + zone.height - half, cursor: 'ns-resize' },
+            { name: 'sw', x: zone.x - half, y: zone.y + zone.height - half, cursor: 'nesw-resize' },
+            { name: 'w', x: zone.x - half, y: zone.y + zone.height / 2 - half, cursor: 'ew-resize' },
+          ];
+
+          handleData.forEach(handle => {
+            const h = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            h.setAttribute('class', 'zone-handle');
+            h.setAttribute('x', handle.x);
+            h.setAttribute('y', handle.y);
+            h.setAttribute('width', handleSize);
+            h.setAttribute('height', handleSize);
+            h.style.cursor = handle.cursor;
+            h.addEventListener('mousedown', evt => startZoneResize(zone, handle.name, evt));
+            zonesLayer.appendChild(h);
+          });
         }
       });
 
@@ -1162,6 +1200,7 @@
     }
 
     function startZoneDrag(zone, evt) {
+      if (resizingZone) return;
       draggingZone = zone;
       zoneDragSnapshot = zones.map(z => ({ ...z }));
       const pt = canvasPoint(evt);
@@ -1187,6 +1226,62 @@
       document.removeEventListener('mouseup', endZoneDrag);
       render();
       renderInspector();
+    }
+
+    function startZoneResize(zone, handle, evt) {
+      evt.stopPropagation();
+      evt.preventDefault();
+      setSelected({ type: 'zone', id: zone.id });
+      resizingZone = zone;
+      resizeHandle = handle;
+      resizeStart = { x: zone.x, y: zone.y, width: zone.width, height: zone.height };
+      document.addEventListener('mousemove', onZoneResize);
+      document.addEventListener('mouseup', endZoneResize);
+    }
+
+    function onZoneResize(evt) {
+      if (!resizingZone || !resizeStart || !resizeHandle) return;
+      const pt = canvasPoint(evt);
+      let { x, y, width, height } = resizeStart;
+
+      if (resizeHandle.includes('e')) {
+        width = Math.max(minZoneSize.width, pt.x - resizeStart.x);
+      }
+
+      if (resizeHandle.includes('s')) {
+        height = Math.max(minZoneSize.height, pt.y - resizeStart.y);
+      }
+
+      if (resizeHandle.includes('w')) {
+        const newWidth = Math.max(minZoneSize.width, resizeStart.x + resizeStart.width - pt.x);
+        x = resizeStart.x + resizeStart.width - newWidth;
+        width = newWidth;
+      }
+
+      if (resizeHandle.includes('n')) {
+        const newHeight = Math.max(minZoneSize.height, resizeStart.y + resizeStart.height - pt.y);
+        y = resizeStart.y + resizeStart.height - newHeight;
+        height = newHeight;
+      }
+
+      resizingZone.x = x;
+      resizingZone.y = y;
+      resizingZone.width = width;
+      resizingZone.height = height;
+      render();
+    }
+
+    function endZoneResize() {
+      if (resizingZone) {
+        updateNodeLocations();
+        render();
+        renderInspector();
+      }
+      resizingZone = null;
+      resizeHandle = null;
+      resizeStart = null;
+      document.removeEventListener('mousemove', onZoneResize);
+      document.removeEventListener('mouseup', endZoneResize);
     }
 
     recalcBtn.addEventListener('click', () => {
