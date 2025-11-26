@@ -651,7 +651,8 @@
     }
 
     function projectCoefficient() {
-      const parsed = parseFloat(kInput.value);
+      const normalized = (kInput.value || '').replace(',', '.');
+      const parsed = Number(normalized);
       if (!Number.isFinite(parsed) || parsed <= 0) return 1;
       return parsed;
     }
