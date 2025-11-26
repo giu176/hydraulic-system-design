@@ -334,7 +334,7 @@
       <button class="action-btn" data-zone="floor">Add floor</button>
       <button class="action-btn" data-zone="room">Add room</button>
     </div>
-    <div class="muted">Zones help organize the network. Nodes must live inside a building, floor, and room.</div>
+    <div class="muted">Zones help organize the network. You can place nodes anywhere, but grouping them in zones keeps things tidy.</div>
     <button class="node-button" data-type="source">
       <span class="badge">Source</span>
       <div>
@@ -538,12 +538,7 @@
 
       assignNodeCode(node, true);
       nodes.push(node);
-      const withinZones = assignNodeLocation(node);
-      if (!withinZones) {
-        alert('Nodes must be placed inside a building, floor, and room. Draw zones first or click inside them.');
-        nodes = nodes.filter(n => n.id !== node.id);
-        return false;
-      }
+      assignNodeLocation(node);
       setCreationType(null);
       return true;
     }
@@ -580,7 +575,8 @@
       node.buildingId = building?.id || null;
       node.floorId = floor?.id || null;
       node.roomId = room?.id || null;
-      return Boolean(building && floor && room);
+      node.withinZones = Boolean(building && floor && room);
+      return true;
     }
 
     function updateNodeLocations() {
@@ -589,7 +585,7 @@
 
     function zoneNameById(id) {
       const z = getZoneById(id);
-      return z ? z.name : '—';
+      return z ? z.name : '';
     }
 
     function nodeLocation(node) {
@@ -601,16 +597,8 @@
       };
     }
 
-    function applyZoneChange(mutator, messageOnFail) {
-      const snapshot = zones.map(z => ({ ...z }));
+    function applyZoneChange(mutator) {
       mutator();
-      const valid = nodes.every(assignNodeLocation);
-      if (!valid) {
-        zones = snapshot;
-        updateNodeLocations();
-        if (messageOnFail) alert(messageOnFail);
-        return false;
-      }
       updateNodeLocations();
       return true;
     }
@@ -772,7 +760,6 @@
           <div class="stat"><span>Building</span><strong>${locationInfo.building}</strong></div>
           <div class="stat"><span>Floor</span><strong>${locationInfo.floor}</strong></div>
           <div class="stat"><span>Room</span><strong>${locationInfo.room}</strong></div>
-          ${!locationInfo.valid ? '<div class="muted">Place the node inside a building, floor, and room.</div>' : ''}
         </div>
         <div class="property-group">
           <div class="stat"><span>Outgoing flow</span><strong>${(node.computedFlow ?? 0).toFixed(2)} l/s</strong></div>
@@ -796,8 +783,7 @@
       if (!zone) return;
       const numeric = parseFloat(value);
       if (!numeric || numeric <= 0) return;
-      const message = 'Zones must continue covering nodes. Size change reverted.';
-      applyZoneChange(() => { zone[field] = numeric; }, message);
+      applyZoneChange(() => { zone[field] = numeric; });
       render();
       renderInspector();
     }
@@ -807,19 +793,16 @@
       if (!zone) return;
       const numeric = parseFloat(value);
       if (Number.isNaN(numeric)) return;
-      const message = 'Zones must continue covering nodes. Move reverted.';
-      applyZoneChange(() => { zone[field] = numeric; }, message);
+      applyZoneChange(() => { zone[field] = numeric; });
       render();
       renderInspector();
     }
 
     window.deleteZone = function (id) {
-      const message = 'Cannot delete this zone because nodes would fall outside a building, floor, or room.';
-      if (applyZoneChange(() => { zones = zones.filter(z => z.id !== id); }, message)) {
-        setSelected(null);
-        render();
-        renderInspector();
-      }
+      applyZoneChange(() => { zones = zones.filter(z => z.id !== id); });
+      setSelected(null);
+      render();
+      renderInspector();
     }
 
     window.renameNode = function (id, value) {
@@ -1171,15 +1154,7 @@
     }
 
     function endDrag() {
-      if (draggingNode) {
-        const within = assignNodeLocation(draggingNode);
-        if (!within) {
-          alert('Nodes must stay inside a building, floor, and room. Move reverted.');
-          draggingNode.x = nodeDragStart.x;
-          draggingNode.y = nodeDragStart.y;
-          assignNodeLocation(draggingNode);
-        }
-      }
+      if (draggingNode) assignNodeLocation(draggingNode);
       draggingNode = null;
       document.removeEventListener('mousemove', onDrag);
       document.removeEventListener('mouseup', endDrag);
@@ -1205,16 +1180,7 @@
     }
 
     function endZoneDrag() {
-      if (draggingZone) {
-        const valid = nodes.every(assignNodeLocation);
-        if (!valid) {
-          zones = zoneDragSnapshot || zones;
-          updateNodeLocations();
-          alert('Zones must keep all nodes within a building, floor, and room. Move reverted.');
-        } else {
-          updateNodeLocations();
-        }
-      }
+      if (draggingZone) updateNodeLocations();
       draggingZone = null;
       zoneDragSnapshot = null;
       document.removeEventListener('mousemove', onZoneDrag);
