@@ -567,7 +567,8 @@
         render();
         return;
       }
-      if (!creationZoneType || evt.button !== 0 || evt.target !== svg) return;
+      const targetIsZone = evt.target.classList && evt.target.classList.contains('zone');
+      if (!creationZoneType || evt.button !== 0 || (evt.target !== svg && !targetIsZone)) return;
       const pt = canvasPoint(evt);
       startZoneDraft(pt);
       evt.preventDefault();
@@ -1118,6 +1119,7 @@
         rect.setAttribute('height', zone.height);
         rect.addEventListener('mousedown', evt => startZoneDrag(zone, evt));
         rect.addEventListener('click', evt => {
+          if (creationType || creationZoneType) return;
           evt.stopPropagation();
           setSelected({ type: 'zone', id: zone.id });
         });
@@ -1129,6 +1131,7 @@
         label.setAttribute('y', zone.y + 20);
         label.textContent = `${zone.name} · ${zoneLabels[zone.type]}`;
         label.addEventListener('click', evt => {
+          if (creationType || creationZoneType) return;
           evt.stopPropagation();
           setSelected({ type: 'zone', id: zone.id });
         });
@@ -1315,7 +1318,7 @@
     }
 
     function startZoneDrag(zone, evt) {
-      if (resizingZone) return;
+      if (resizingZone || creationZoneType || creationType) return;
       draggingZone = zone;
       zoneDragSnapshot = zones.map(z => ({ ...z }));
       const pt = canvasPoint(evt);
